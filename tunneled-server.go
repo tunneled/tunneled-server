@@ -9,7 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"syscall"
+	"strings"
 )
 
 const (
@@ -22,25 +22,20 @@ func init() {
 }
 
 func handleServerConn(keyID string, chans <-chan ssh.NewChannel) {
-	fmt.Println(keyID)
+	log.Info("Begin handling server connection...")
 }
 
-func createHostKey() ssh.Signer {
-	sshKeygenBinary, err := exec.LookPath("ssh-keygen")
+func createHostKey() {
+	cmd := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "")
+
+	err := cmd.Run()
+
 	if err != nil {
-		panic(err)
-	}
-
-	keygenArgs := []string{"ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", ""}
-
-	execErr := syscall.Exec(sshKeygenBinary, keygenArgs, os.Environ())
-	if execErr != nil {
 		log.Error("Failed to create private key for host")
 		panic(err)
 	}
 
-	log.Info("New private host key generated: %s", privateHostKeyPath)
-	return loadPrivateHostKey()
+	log.Info(fmt.Sprintf("New private host key generated: %s", privateHostKeyPath))
 }
 
 func loadPrivateHostKey() ssh.Signer {
@@ -58,9 +53,12 @@ func loadPrivateHostKey() ssh.Signer {
 }
 
 func main() {
+	var privateHostKey ssh.Signer
+
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			fmt.Println(ssh.MarshalAuthorizedKey(key))
+			formattedPrivateKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+			log.Info("User's public key is: " + formattedPrivateKey)
 
 			//publicKey, err := models.SearchPublicKeyByContent(strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))))
 
@@ -69,22 +67,22 @@ func main() {
 			//	return nil, err
 			//}
 			//return &ssh.Permissions{Extensions: map[string]string{"key-id": com.ToStr(publicKey.ID)}}, nil
-			return &ssh.Permissions{Extensions: map[string]string{"key-id": "foo"}}, nil
+			return &ssh.Permissions{Extensions: map[string]string{"key-id": "SUCCESS"}}, nil
 		},
 	}
 
-	var privateHostKey ssh.Signer
-
 	if _, err := os.Stat(privateHostKeyPath); os.IsNotExist(err) {
-		log.Info("Host key does not exist, creating")
-		privateHostKey = createHostKey()
+		log.Info("Host key does not exist, creating...")
+		createHostKey()
+		privateHostKey = loadPrivateHostKey()
 	} else {
-		log.Info("Host key exists")
+		log.Info("Host key exists, continuing...")
 		privateHostKey = loadPrivateHostKey()
 	}
 
 	config.AddHostKey(privateHostKey)
 
+	log.Info("Opening connection...")
 	listener, err := net.Listen("tcp", "0.0.0.0:2222")
 
 	if err != nil {
