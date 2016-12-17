@@ -40,12 +40,12 @@ func createHostKey() {
 func loadPrivateHostKey() ssh.Signer {
 	privateHostKeyBytes, err := ioutil.ReadFile(privateHostKeyPath)
 	if err != nil {
-		panic("Fail to load private key")
+		panic("Failed to load host's private key")
 	}
 
 	privateHostKey, err := ssh.ParsePrivateKey(privateHostKeyBytes)
 	if err != nil {
-		panic("Fail to parse private key")
+		panic("Failed to parse host's private key")
 	}
 
 	return privateHostKey
@@ -81,7 +81,7 @@ func main() {
 
 	config.AddHostKey(privateHostKey)
 
-	log.Info("Opening connection...")
+	log.Info("Listening...")
 	listener, err := net.Listen("tcp", "0.0.0.0:2222")
 
 	if err != nil {
