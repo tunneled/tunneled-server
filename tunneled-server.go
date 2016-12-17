@@ -56,7 +56,7 @@ func main() {
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			formattedPrivateKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-			log.Debug("User's public key is: " + formattedPrivateKey)
+			log.Debug("User's private key is: " + formattedPrivateKey)
 
 			return &ssh.Permissions{Extensions: map[string]string{"key-id": "SUCCESS"}}, nil
 		},
