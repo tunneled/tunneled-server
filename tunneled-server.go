@@ -81,7 +81,7 @@ func main() {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Error("SSH: Error accepting incoming connection: %v", err)
+			log.Error(fmt.Sprintf("SSH: Error accepting incoming connection: %v", err))
 		}
 
 		go func() {
@@ -89,14 +89,14 @@ func main() {
 			sConn, chans, reqs, err := ssh.NewServerConn(conn, config)
 			if err != nil {
 				if err == io.EOF {
-					log.Warn("SSH: Handshaking was terminated: %v", err)
+					log.Warn(fmt.Sprintf("SSH: Handshaking was terminated: %v", err))
 				} else {
-					log.Error(3, "SSH: Error on handshaking: %v", err)
+					log.Error(fmt.Sprintf("SSH: Error on handshaking: %v", err))
 				}
 				return
 			}
 
-			log.Info("SSH: Connection from %s (%s)", sConn.RemoteAddr(), sConn.ClientVersion())
+			log.Info(fmt.Sprintf("SSH: Connection from %s (%s)", sConn.RemoteAddr(), sConn.ClientVersion()))
 			go ssh.DiscardRequests(reqs)
 			go handleServerConn(sConn.Permissions.Extensions["key-id"], chans)
 		}()
