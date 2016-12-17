@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"io"
@@ -35,7 +34,7 @@ func createHostKey() {
 		panic(err)
 	}
 
-	log.Info(fmt.Sprintf("New private host key generated: %s", privateHostKeyPath))
+	log.Info("New private host key generated: " + privateHostKeyPath)
 }
 
 func loadPrivateHostKey() ssh.Signer {
