@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -32,14 +34,23 @@ const (
 
 type tunnel struct {
 	user            *user
-	source          net.Addr
+	source          string
 	destinationPort uint32
+	connection      *ssh.ServerConn
 }
 
 //TODO: Find a better name
 type tcpIpForwardPayload struct {
 	BindIP   string
 	BindPort uint32
+}
+
+//TODO: Find a reference to the RFC this is wired up to
+type forwardTCPIPChannelRequest struct {
+	ForwardIP   string
+	ForwardPort uint32
+	OriginIP    string
+	OriginPort  uint32
 }
 
 type tunnelServer struct {
@@ -72,7 +83,10 @@ func main() {
 
 	server.config = sshConfig
 	server.hydrateUsers()
-	server.Start()
+
+	go server.Start()
+
+	setupHttpListener()
 }
 
 func findOrCreateHostKey() ssh.Signer {
@@ -116,7 +130,7 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 func (server *tunnelServer) hydrateUsers() {
 	server.users["bswinnerton"] = &user{
 		login:     "brooks",
-		subdomain: "bswinnerton.tunneled.computer",
+		subdomain: "noodlepuff.com",
 		publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7",
 	}
 }
@@ -165,17 +179,20 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 
 			user := server.users[conn.User()]
 			port := payload.BindPort
-			addr := conn.RemoteAddr()
+			addr := payload.BindIP
 
-			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s  for %s\n", user.subdomain, port, addr, user.login))
+			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login))
 
-			tun := tunnel{user: user, destinationPort: port, source: addr}
+			tun := tunnel{
+				user:            user,
+				destinationPort: port,
+				source:          addr,
+				connection:      conn,
+			}
 
 			server.Lock()
 			server.tunnels[user.subdomain] = &tun
 			server.Unlock()
-
-			// Set up forwards
 
 			req.Reply(true, []byte{})
 		} else {
@@ -196,5 +213,43 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 				return
 			}
 		}()
+	}
+}
+
+func setupHttpListener() {
+	http.HandleFunc("/", handler)
+	http.ListenAndServe("localhost:8001", nil)
+}
+
+func handler(writer http.ResponseWriter, request *http.Request) {
+	host, strPort, err := net.SplitHostPort(request.Host)
+	port, err := strconv.ParseUint(strPort, 10, 32)
+
+	if err != nil {
+		log.Warn("Couldn't parse port")
+	}
+
+	tunnel := server.tunnels[host]
+	if tunnel != nil {
+		req := forwardTCPIPChannelRequest{
+			ForwardIP:   tunnel.source,
+			ForwardPort: tunnel.destinationPort,
+			OriginIP:    host,
+			OriginPort:  uint32(port),
+		}
+
+		channel, reqs, err := tunnel.connection.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+		if err != nil {
+			log.Error("failed-to-open-channel", err)
+			return
+		}
+
+		defer channel.Close()
+
+		go ssh.DiscardRequests(reqs)
+
+		// Forward requests?
+	} else {
+		log.Info("Couldn't find tunnel")
 	}
 }
