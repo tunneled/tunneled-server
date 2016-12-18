@@ -1,3 +1,8 @@
+// Notes
+// https://github.com/pivotal-cf-experimental/remote-pairing-release/blob/master/src/github.com/pivotal-cf-experimental/ssh-tunnel/server.go#L298
+// https://github.com/Sirupsen/logrus
+// https://github.com/emulbreh/sshub/blob/c14f516babcc121ae62de2ada5ebffd779e4d6b6/libsshub/hub.go
+
 package main
 
 import (
