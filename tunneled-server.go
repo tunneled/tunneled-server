@@ -21,16 +21,31 @@ const (
 	port               = "2222"
 )
 
-type forwardChannelArgs struct {
-	Addr       string
-	Port       uint32
-	OriginAddr string
-	OriginPort uint32
+//TODO: Find a better name
+type forwardRequest struct {
+	BindIP   string
+	BindPort uint32
 }
 
 type Server struct {
 	Config *ssh.ServerConfig
 	Port   string
+}
+
+func main() {
+	config := &ssh.ServerConfig{
+		PublicKeyCallback: authorizeByPublicKey,
+	}
+
+	hostKey := findOrCreateHostKey()
+	config.AddHostKey(hostKey)
+
+	server := &Server{
+		Config: config,
+		Port:   port,
+	}
+
+	server.Start()
 }
 
 func findOrCreateHostKey() ssh.Signer {
@@ -74,7 +89,7 @@ func (server *Server) Start() error {
 	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 
 	if err != nil {
-		return err
+		log.Fatal(fmt.Sprintf("Could not start server: %s", err))
 	}
 
 	defer listener.Close()
@@ -90,16 +105,26 @@ func (server *Server) Start() error {
 			log.Panic(fmt.Sprintf("Failed to handshake (%s)", err))
 		}
 
-		log.Info(fmt.Sprintf("New SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion()))
+		log.Info(fmt.Sprintf("New SSH connection from %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
 
-		go handleRequests(reqs)
+		go handleRequests(reqs, sshConn)
 		go handleChannels(chans, sshConn)
 	}
 }
 
-func handleRequests(reqs <-chan *ssh.Request) {
+func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
+
+			var forwardReq forwardRequest
+			err := ssh.Unmarshal(req.Payload, &forwardReq)
+			if err != nil {
+				log.Warn(fmt.Sprintf("Malformed request %s", err))
+				req.Reply(false, nil)
+			}
+
+			log.Info(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", conn.User(), forwardReq.BindPort, conn.RemoteAddr()))
+
 			req.Reply(true, []byte{})
 		} else {
 			log.Warn("got unexpected request %q WantReply=%q: %q\n", req.Type, req.WantReply, req.Payload)
@@ -110,52 +135,14 @@ func handleRequests(reqs <-chan *ssh.Request) {
 
 func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	for newChannel := range chans {
-		go handleChannel(newChannel, conn)
+		go func() {
+			channelType := newChannel.ChannelType()
+
+			if channelType != "direct-tcpip" {
+				newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
+				log.Info(fmt.Sprintf("Rejecting SSH connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr()))
+				return
+			}
+		}()
 	}
-}
-
-func handleChannel(newChannel ssh.NewChannel, conn *ssh.ServerConn) {
-	channelType := newChannel.ChannelType()
-
-	if channelType != "direct-tcpip" {
-		newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
-		log.Info(fmt.Sprintf("Rejecting SSH connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr()))
-		return
-	}
-
-	args := forwardChannelArgs{}
-	err := ssh.Unmarshal(newChannel.ExtraData(), &args)
-	if err != nil {
-		log.Warning(fmt.Sprintf("Failed to parse channel request data: %s", err))
-		newChannel.Reject(ssh.Prohibited, "invalid request data")
-		return
-	}
-
-	connection, requests, err := newChannel.Accept()
-	if err != nil {
-		log.Panic(fmt.Sprintf("Could not accept channel (%s)", err))
-		return
-	}
-
-	for req := range requests {
-		log.Info(req.Type)
-	}
-
-	connection.Close()
-}
-
-func main() {
-	config := &ssh.ServerConfig{
-		PublicKeyCallback: authorizeByPublicKey,
-	}
-
-	hostKey := findOrCreateHostKey()
-	config.AddHostKey(hostKey)
-
-	server := &Server{
-		Config: config,
-		Port:   port,
-	}
-
-	server.Start()
 }
