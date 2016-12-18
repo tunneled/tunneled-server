@@ -7,11 +7,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -54,6 +56,12 @@ type user struct {
 	subdomain string
 }
 
+var server = &tunnelServer{
+	port:    port,
+	tunnels: map[string]*tunnel{},
+	users:   map[string]*user{},
+}
+
 func main() {
 	sshConfig := &ssh.ServerConfig{
 		PublicKeyCallback: authorizeByPublicKey,
@@ -62,13 +70,7 @@ func main() {
 	hostKey := findOrCreateHostKey()
 	sshConfig.AddHostKey(hostKey)
 
-	server := &tunnelServer{
-		config:  sshConfig,
-		port:    port,
-		tunnels: map[string]*tunnel{},
-		users:   map[string]*user{},
-	}
-
+	server.config = sshConfig
 	server.hydrateUsers()
 	server.Start()
 }
@@ -97,14 +99,21 @@ func findOrCreateHostKey() ssh.Signer {
 }
 
 func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-	// TODO: Perform lookup to see if key is known, find associated user.
-	//formattedKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	user := server.users[conn.User()]
+	publicKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
 
-	return &ssh.Permissions{}, nil
+	if user != nil && user.publicKey == publicKey {
+		log.Info(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
+		return &ssh.Permissions{}, nil
+	} else {
+		err := errors.New("Unauthorized access")
+		log.Info(fmt.Sprintf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr()))
+		return nil, err
+	}
 }
 
 func (server *tunnelServer) hydrateUsers() {
-	server.users["brooks"] = &user{login: "brooks", subdomain: "bswinnerton.tunneled.computer", publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7 brooks@Alfred.local"}
+	server.users["brooks"] = &user{login: "brooks", subdomain: "bswinnerton.tunneled.computer", publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7"}
 }
 
 func (server *tunnelServer) Start() error {
@@ -127,7 +136,7 @@ func (server *tunnelServer) Start() error {
 		if err != nil {
 			log.Warn(fmt.Sprintf("Failed to handshake from %s: %s", tcpConn.RemoteAddr(), err))
 		} else {
-			log.Info(fmt.Sprintf("New SSH connection from %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
+			log.Info(fmt.Sprintf("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
 
 			go handleRequests(reqs, sshConn, server)
 			go handleChannels(chans, sshConn)
@@ -149,7 +158,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			port := payload.BindPort
 			addr := conn.RemoteAddr()
 
-			log.Debug(fmt.Sprintf("%s is requesting http://%s:%d to be forwarded to %s", user.login, user.subdomain, port, addr))
+			log.Debug(fmt.Sprintf("User %s is requesting http://%s:%d to be forwarded to %s", user.login, user.subdomain, port, addr))
 
 			tun := tunnel{user: user, destinationPort: port, source: addr}
 
