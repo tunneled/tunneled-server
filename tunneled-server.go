@@ -2,6 +2,7 @@
 // https://github.com/pivotal-cf-experimental/remote-pairing-release/blob/master/src/github.com/pivotal-cf-experimental/ssh-tunnel/server.go#L298
 // https://github.com/Sirupsen/logrus
 // https://github.com/emulbreh/sshub/blob/c14f516babcc121ae62de2ada5ebffd779e4d6b6/libsshub/hub.go
+// ssh -NR 8001:localhost:8000 brooks@localhost -p 2222
 
 package main
 
@@ -161,6 +162,8 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			server.Lock()
 			server.tunnels[user.subdomain] = &tun
 			server.Unlock()
+
+			// Set up forwards
 
 			req.Reply(true, []byte{})
 		} else {
