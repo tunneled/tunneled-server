@@ -50,8 +50,9 @@ func main() {
 	sshConfig.AddHostKey(hostKey)
 
 	server := &tunnelServer{
-		config: sshConfig,
-		port:   port,
+		config:  sshConfig,
+		port:    port,
+		tunnels: map[uint32]*tunnel{},
 	}
 
 	server.Start()
@@ -106,20 +107,18 @@ func (server *tunnelServer) Start() error {
 	for {
 		tcpConn, err := listener.Accept()
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
+			log.Warn(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
 		}
 
 		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to handshake (%s)", err))
+			log.Warn(fmt.Sprintf("Failed to handshake from %s: %s", tcpConn.RemoteAddr(), err))
+		} else {
+			log.Info(fmt.Sprintf("New SSH connection from %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
+
+			go handleRequests(reqs, sshConn, server)
+			go handleChannels(chans, sshConn)
 		}
-
-		log.Info(fmt.Sprintf("New SSH connection from %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
-
-		server.tunnels = map[uint32]*tunnel{}
-
-		go handleRequests(reqs, sshConn, server)
-		go handleChannels(chans, sshConn)
 	}
 }
 
