@@ -23,7 +23,7 @@ const (
 )
 
 type tunnel struct {
-	user            string
+	user            *user
 	source          net.Addr
 	destinationPort uint32
 }
@@ -37,8 +37,15 @@ type tcpIpForwardPayload struct {
 type tunnelServer struct {
 	config  *ssh.ServerConfig
 	port    string
-	tunnels map[uint32]*tunnel
+	tunnels map[string]*tunnel
+	users   map[string]*user
 	sync.Mutex
+}
+
+type user struct {
+	login     string
+	publicKey string
+	subdomain string
 }
 
 func main() {
@@ -52,9 +59,11 @@ func main() {
 	server := &tunnelServer{
 		config:  sshConfig,
 		port:    port,
-		tunnels: map[uint32]*tunnel{},
+		tunnels: map[string]*tunnel{},
+		users:   map[string]*user{},
 	}
 
+	server.hydrateUsers()
 	server.Start()
 }
 
@@ -92,6 +101,10 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 	//formattedKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
 
 	return &ssh.Permissions{}, nil
+}
+
+func (server *tunnelServer) hydrateUsers() {
+	server.users["brooks"] = &user{login: "brooks", subdomain: "bswinnerton.tunneled.computer", publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7 brooks@Alfred.local"}
 }
 
 func (server *tunnelServer) Start() error {
@@ -132,17 +145,16 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 				req.Reply(false, nil)
 			}
 
-			user := conn.User()
+			user := server.users[conn.User()]
 			port := payload.BindPort
 			addr := conn.RemoteAddr()
 
-			log.Debug(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", user, port, addr))
+			log.Debug(fmt.Sprintf("%s is requesting http://%s:%d to be forwarded to %s", user.login, user.subdomain, port, addr))
 
 			tun := tunnel{user: user, destinationPort: port, source: addr}
 
-			//TODO: Check to see if port already exists, fail if so
 			server.Lock()
-			server.tunnels[port] = &tun
+			server.tunnels[user.subdomain] = &tun
 			server.Unlock()
 
 			req.Reply(true, []byte{})
