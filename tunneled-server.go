@@ -139,15 +139,17 @@ func (server *tunnelServer) Start() error {
 
 		log.Info(fmt.Sprintf("Beginning SSH handshake for %s", tcpConn.RemoteAddr()))
 
-		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
-		if err != nil {
-			log.Info(fmt.Sprintf("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err))
-		} else {
-			log.Info(fmt.Sprintf("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
+		go func() {
+			sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
+			if err != nil {
+				log.Info(fmt.Sprintf("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err))
+			} else {
+				log.Info(fmt.Sprintf("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
 
-			go handleRequests(reqs, sshConn, server)
-			go handleChannels(chans, sshConn)
-		}
+				go handleRequests(reqs, sshConn, server)
+				go handleChannels(chans, sshConn)
+			}
+		}()
 	}
 }
 
@@ -190,7 +192,7 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 
 			if channelType != "direct-tcpip" {
 				newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
-				log.Info(fmt.Sprintf("Rejecting SSH connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr()))
+				log.Info(fmt.Sprintf("Rejected connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr()))
 				return
 			}
 		}()
