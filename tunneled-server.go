@@ -77,22 +77,24 @@ func main() {
 
 func findOrCreateHostKey() ssh.Signer {
 	if _, err := os.Stat(privateHostKeyPath); os.IsNotExist(err) {
-		log.Info("SSH: Host key does not exist, creating...")
+		log.Info("Host SSH key pair does not exist, creating...")
 
 		err := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "").Run()
 		if err != nil {
-			log.Panic(fmt.Sprintf("SSH: Failed to create private key for host %s", err))
+			log.Panic(fmt.Sprintf("Failed to create key pair for host %s", err))
+		} else {
+			log.Debug("Host key pair created")
 		}
 	}
 
 	hostKeyBytes, err := ioutil.ReadFile(privateHostKeyPath)
 	if err != nil {
-		log.Panic("SSH: Failed to load host's private key")
+		log.Panic("Failed to load host's private SSH key")
 	}
 
 	hostKey, err := ssh.ParsePrivateKey(hostKeyBytes)
 	if err != nil {
-		log.Panic("SSH: Failed to parse host's private key")
+		log.Panic("Failed to parse host's private SSH key")
 	}
 
 	return hostKey
