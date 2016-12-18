@@ -106,9 +106,8 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 		log.Debug(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
 		return &ssh.Permissions{}, nil
 	} else {
-		err := errors.New("Unauthorized access")
 		log.Debug(fmt.Sprintf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr()))
-		return nil, err
+		return nil, errors.New("Unauthorized access")
 	}
 }
 
@@ -121,7 +120,7 @@ func (server *tunnelServer) hydrateUsers() {
 }
 
 func (server *tunnelServer) Start() error {
-	log.Info("Starting server...")
+	log.Info("Starting server...\n")
 	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 
 	if err != nil {
@@ -136,11 +135,11 @@ func (server *tunnelServer) Start() error {
 			log.Warn(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
 		}
 
-		log.Debug(fmt.Sprintf("Beginning SSH handshake for %s", tcpConn.RemoteAddr()))
+		log.Info(fmt.Sprintf("Beginning SSH handshake for %s", tcpConn.RemoteAddr()))
 
 		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to handshake from %s: %s", tcpConn.RemoteAddr(), err))
+			log.Info(fmt.Sprintf("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err))
 		} else {
 			log.Info(fmt.Sprintf("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
 
@@ -164,7 +163,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			port := payload.BindPort
 			addr := conn.RemoteAddr()
 
-			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s  for %s", user.subdomain, port, addr, user.login))
+			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s  for %s\n", user.subdomain, port, addr, user.login))
 
 			tun := tunnel{user: user, destinationPort: port, source: addr}
 
