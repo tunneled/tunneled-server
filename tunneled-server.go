@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
@@ -21,6 +22,12 @@ const (
 	port               = "2222"
 )
 
+type tunnel struct {
+	User            string
+	Source          net.Addr
+	DestinationPort uint32
+}
+
 //TODO: Find a better name
 type forwardRequest struct {
 	BindIP   string
@@ -28,8 +35,10 @@ type forwardRequest struct {
 }
 
 type Server struct {
-	Config *ssh.ServerConfig
-	Port   string
+	Config  *ssh.ServerConfig
+	Port    string
+	tunnels map[uint32]*tunnel
+	sync.Mutex
 }
 
 func main() {
@@ -107,15 +116,16 @@ func (server *Server) Start() error {
 
 		log.Info(fmt.Sprintf("New SSH connection from %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
 
-		go handleRequests(reqs, sshConn)
+		server.tunnels = map[uint32]*tunnel{}
+
+		go handleRequests(reqs, sshConn, server)
 		go handleChannels(chans, sshConn)
 	}
 }
 
-func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
+func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *Server) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
-
 			var forwardReq forwardRequest
 			err := ssh.Unmarshal(req.Payload, &forwardReq)
 			if err != nil {
@@ -123,7 +133,14 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 				req.Reply(false, nil)
 			}
 
-			log.Info(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", conn.User(), forwardReq.BindPort, conn.RemoteAddr()))
+			log.Debug(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", conn.User(), forwardReq.BindPort, conn.RemoteAddr()))
+
+			tun := tunnel{User: conn.User(), DestinationPort: forwardReq.BindPort, Source: conn.RemoteAddr()}
+
+			server.Lock()
+			//TODO: Check to see if port already exists, fail if so
+			server.tunnels[forwardReq.BindPort] = &tun
+			server.Unlock()
 
 			req.Reply(true, []byte{})
 		} else {
