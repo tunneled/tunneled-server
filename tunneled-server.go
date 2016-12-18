@@ -192,7 +192,7 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 
 			if channelType != "direct-tcpip" {
 				newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
-				log.Info(fmt.Sprintf("Rejected connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr()))
+				log.Info(fmt.Sprintf("Rejected connection for %s@%s: didn't pass -NR flags\n", conn.User(), conn.RemoteAddr()))
 				return
 			}
 		}()
