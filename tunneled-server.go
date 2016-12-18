@@ -23,35 +23,35 @@ const (
 )
 
 type tunnel struct {
-	User            string
-	Source          net.Addr
-	DestinationPort uint32
+	user            string
+	source          net.Addr
+	destinationPort uint32
 }
 
 //TODO: Find a better name
-type forwardRequest struct {
+type tcpIpForwardPayload struct {
 	BindIP   string
 	BindPort uint32
 }
 
-type Server struct {
-	Config  *ssh.ServerConfig
-	Port    string
+type tunnelServer struct {
+	config  *ssh.ServerConfig
+	port    string
 	tunnels map[uint32]*tunnel
 	sync.Mutex
 }
 
 func main() {
-	config := &ssh.ServerConfig{
+	sshConfig := &ssh.ServerConfig{
 		PublicKeyCallback: authorizeByPublicKey,
 	}
 
 	hostKey := findOrCreateHostKey()
-	config.AddHostKey(hostKey)
+	sshConfig.AddHostKey(hostKey)
 
-	server := &Server{
-		Config: config,
-		Port:   port,
+	server := &tunnelServer{
+		config: sshConfig,
+		port:   port,
 	}
 
 	server.Start()
@@ -93,7 +93,7 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 	return &ssh.Permissions{}, nil
 }
 
-func (server *Server) Start() error {
+func (server *tunnelServer) Start() error {
 	log.Info("Starting server...")
 	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 
@@ -109,7 +109,7 @@ func (server *Server) Start() error {
 			log.Panic(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
 		}
 
-		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.Config)
+		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 		if err != nil {
 			log.Panic(fmt.Sprintf("Failed to handshake (%s)", err))
 		}
@@ -123,23 +123,27 @@ func (server *Server) Start() error {
 	}
 }
 
-func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *Server) {
+func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunnelServer) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
-			var forwardReq forwardRequest
-			err := ssh.Unmarshal(req.Payload, &forwardReq)
+			var payload tcpIpForwardPayload
+			err := ssh.Unmarshal(req.Payload, &payload)
 			if err != nil {
 				log.Warn(fmt.Sprintf("Malformed request %s", err))
 				req.Reply(false, nil)
 			}
 
-			log.Debug(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", conn.User(), forwardReq.BindPort, conn.RemoteAddr()))
+			user := conn.User()
+			port := payload.BindPort
+			addr := conn.RemoteAddr()
 
-			tun := tunnel{User: conn.User(), DestinationPort: forwardReq.BindPort, Source: conn.RemoteAddr()}
+			log.Debug(fmt.Sprintf("%s is requesting port %d to be forwarded to %s", user, port, addr))
 
-			server.Lock()
+			tun := tunnel{user: user, destinationPort: port, source: addr}
+
 			//TODO: Check to see if port already exists, fail if so
-			server.tunnels[forwardReq.BindPort] = &tun
+			server.Lock()
+			server.tunnels[port] = &tun
 			server.Unlock()
 
 			req.Reply(true, []byte{})
