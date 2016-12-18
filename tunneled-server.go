@@ -103,17 +103,21 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 	publicKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
 
 	if user != nil && user.publicKey == publicKey {
-		log.Info(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
+		log.Debug(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
 		return &ssh.Permissions{}, nil
 	} else {
 		err := errors.New("Unauthorized access")
-		log.Info(fmt.Sprintf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr()))
+		log.Debug(fmt.Sprintf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr()))
 		return nil, err
 	}
 }
 
 func (server *tunnelServer) hydrateUsers() {
-	server.users["brooks"] = &user{login: "brooks", subdomain: "bswinnerton.tunneled.computer", publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7"}
+	server.users["bswinnerton"] = &user{
+		login:     "brooks",
+		subdomain: "bswinnerton.tunneled.computer",
+		publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7",
+	}
 }
 
 func (server *tunnelServer) Start() error {
@@ -131,6 +135,8 @@ func (server *tunnelServer) Start() error {
 		if err != nil {
 			log.Warn(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
 		}
+
+		log.Debug(fmt.Sprintf("Beginning SSH handshake for %s", tcpConn.RemoteAddr()))
 
 		sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 		if err != nil {
@@ -158,7 +164,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			port := payload.BindPort
 			addr := conn.RemoteAddr()
 
-			log.Debug(fmt.Sprintf("User %s is requesting http://%s:%d to be forwarded to %s", user.login, user.subdomain, port, addr))
+			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s  for %s", user.subdomain, port, addr, user.login))
 
 			tun := tunnel{user: user, destinationPort: port, source: addr}
 
