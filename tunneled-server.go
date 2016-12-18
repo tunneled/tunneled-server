@@ -76,7 +76,11 @@ func main() {
 func findOrCreateHostKey() ssh.Signer {
 	if _, err := os.Stat(privateHostKeyPath); os.IsNotExist(err) {
 		log.Info("SSH: Host key does not exist, creating...")
-		createHostKey()
+
+		err := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "").Run()
+		if err != nil {
+			log.Panic(fmt.Sprintf("SSH: Failed to create private key for host %s", err))
+		}
 	}
 
 	hostKeyBytes, err := ioutil.ReadFile(privateHostKeyPath)
@@ -90,16 +94,6 @@ func findOrCreateHostKey() ssh.Signer {
 	}
 
 	return hostKey
-}
-
-func createHostKey() {
-	cmd := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "")
-
-	err := cmd.Run()
-
-	if err != nil {
-		log.Panic(fmt.Sprintf("SSH: Failed to create private key for host %s", err))
-	}
 }
 
 func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
