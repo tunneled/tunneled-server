@@ -2,6 +2,7 @@
 // https://github.com/pivotal-cf-experimental/remote-pairing-release/blob/master/src/github.com/pivotal-cf-experimental/ssh-tunnel/server.go#L298
 // https://github.com/Sirupsen/logrus
 // https://github.com/emulbreh/sshub/blob/c14f516babcc121ae62de2ada5ebffd779e4d6b6/libsshub/hub.go
+// https://github.com/Kane-Sendgrid/wormhole/blob/53cd61266020a26a2464439885560f8cf11b9d24/ssh.go#L180
 // ssh -NR 8001:localhost:8000 brooks@localhost -p 2222
 
 package main
