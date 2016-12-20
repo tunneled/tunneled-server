@@ -8,10 +8,14 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 	"strings"
@@ -72,7 +76,8 @@ func main() {
 	newSSHServer.config = sshConfig
 	newSSHServer.populateUsers()
 
-	newSSHServer.Start()
+	go newSSHServer.Start()
+	newRequestDirector.Start()
 }
 
 func (server *sshServer) key() ssh.Signer {
@@ -218,8 +223,6 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 
 				// TODO: Make this threadsafe
 				newSSHServer.tunnels[user.subdomain] = &tun
-
-				go newRequestDirector.Start(tun)
 			} else {
 				log.Warn("User '%s' does not exist", conn.User())
 				req.Reply(false, nil)
@@ -247,40 +250,37 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	}
 }
 
-func (director *requestDirector) Start(tun tunnel) {
+func (director *requestDirector) Start() {
 	log.Info("Starting Request Director...\n")
 
-	listener, err := net.Listen("tcp", "0.0.0.0:"+director.port)
+	http.HandleFunc("/", director.handler)
+	err := http.ListenAndServe(":"+director.port, nil)
 	if err != nil {
-		log.Warnf("Could not start listening on 0.0.0.0:%s: %s", director.port, err)
+		log.Fatalf("Could not start request director: ", err)
+	}
+}
+
+func (director *requestDirector) handler(writer http.ResponseWriter, request *http.Request) {
+	host, _, err := net.SplitHostPort(request.Host)
+	if err != nil {
+		log.Warnf("Could not parse host: %s", request.Host)
 	}
 
-	for {
-		conn, err := listener.Accept()
+	tun := newSSHServer.tunnels[host]
+
+	if tun != nil {
+		log.Infof("Directing request %s%s to %s's tunnel", request.Host, request.URL, tun.user.login)
+
+		requestBytes, err := httputil.DumpRequest(request, true)
 		if err != nil {
-			log.Panicf("Could not accept request: %s", err)
+			log.Warn("Could not dump request: %s", err)
 		}
 
-		log.Infof("Incoming request from %s", conn.RemoteAddr())
+		requestReader := bytes.NewReader(requestBytes)
 
-		// TODO: Determine tunnel from Host
-
-		go func() {
-			_, err = io.Copy(conn, tun.channel)
-			if err != nil {
-				conn.Close()
-				log.Infof("Couldn't copy request to tunnel: %s", err)
-				return
-			}
-		}()
-
-		go func() {
-			_, err = io.Copy(tun.channel, conn)
-			if err != nil {
-				conn.Close()
-				log.Infof("Couldn't copy request to tunnel: %s", err)
-				return
-			}
-		}()
+		io.Copy(tun.channel, requestReader)
+		io.Copy(writer, tun.channel)
+	} else {
+		fmt.Fprintf(writer, "No tunnel found")
 	}
 }
