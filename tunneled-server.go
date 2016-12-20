@@ -10,12 +10,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -44,14 +43,6 @@ type tunnel struct {
 type tcpIpForwardPayload struct {
 	BindIP   string
 	BindPort uint32
-}
-
-//TODO: Find a reference to the RFC this is wired up to
-type forwardTCPIPChannelRequest struct {
-	ForwardIP   string
-	ForwardPort uint32
-	OriginIP    string
-	OriginPort  uint32
 }
 
 type tunnelServer struct {
@@ -85,9 +76,7 @@ func main() {
 	server.config = sshConfig
 	server.hydrateUsers()
 
-	go server.Start()
-
-	setupHttpListener()
+	server.Start()
 }
 
 func findOrCreateHostKey() ssh.Signer {
@@ -115,11 +104,18 @@ func findOrCreateHostKey() ssh.Signer {
 	return hostKey
 }
 
+func convertPublicKeyToString(key ssh.PublicKey) string {
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+}
+
 func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	user := server.users[conn.User()]
-	publicKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	publicKey := convertPublicKeyToString(key)
+	serverPublicKey := convertPublicKeyToString(findOrCreateHostKey().PublicKey())
 
-	if user != nil && user.publicKey == publicKey {
+	if publicKey == serverPublicKey {
+		return &ssh.Permissions{}, nil
+	} else if user != nil && user.publicKey == publicKey {
 		log.Debug(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
 		return &ssh.Permissions{}, nil
 	} else {
@@ -182,18 +178,22 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			port := payload.BindPort
 			addr := payload.BindIP
 
-			log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login))
+			if user != nil {
+				log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login))
 
-			tun := tunnel{
-				user:            user,
-				destinationPort: port,
-				source:          addr,
-				connection:      conn,
+				tun := tunnel{
+					user:            user,
+					destinationPort: port,
+					source:          addr,
+					connection:      conn,
+				}
+
+				server.Lock()
+				server.tunnels[user.subdomain] = &tun
+				server.Unlock()
+
+				startReverseTunnel(tun)
 			}
-
-			server.Lock()
-			server.tunnels[user.subdomain] = &tun
-			server.Unlock()
 
 			req.Reply(true, []byte{})
 		} else {
@@ -217,40 +217,62 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	}
 }
 
-func setupHttpListener() {
-	http.HandleFunc("/", handler)
-	http.ListenAndServe("localhost:8001", nil)
-}
-
-func handler(writer http.ResponseWriter, request *http.Request) {
-	host, strPort, err := net.SplitHostPort(request.Host)
-	port, err := strconv.ParseUint(strPort, 10, 32)
-
-	if err != nil {
-		log.Warn("Couldn't parse port")
+func startReverseTunnel(tun tunnel) {
+	type channelOpenForwardMsg struct {
+		raddr string
+		rport uint32
+		laddr string
+		lport uint32
 	}
 
-	tunnel := server.tunnels[host]
-	if tunnel != nil {
-		req := forwardTCPIPChannelRequest{
-			ForwardIP:   tunnel.source,
-			ForwardPort: tunnel.destinationPort,
-			OriginIP:    host,
-			OriginPort:  uint32(port),
-		}
+	req := &channelOpenForwardMsg{
+		raddr: "localhost",
+		rport: 8001,
+		laddr: "localhost",
+		lport: 8000,
+	}
 
-		channel, reqs, err := tunnel.connection.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+	channel, reqs, err := tun.connection.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+	if err != nil {
+		log.Error("failed-to-open-channel: ", err)
+		return
+	}
+
+	defer channel.Close()
+
+	go ssh.DiscardRequests(reqs)
+
+	listener, err := net.Listen("tcp", "0.0.0.0:8001")
+	if err != nil {
+		log.Warn(fmt.Sprintf("Could not start listening on 0.0.0.0:8001: ", err))
+	}
+
+	for {
+		conn, err := listener.Accept()
 		if err != nil {
-			log.Error("failed-to-open-channel", err)
-			return
+			log.Panic(fmt.Sprintf("Could not accept request: ", err))
 		}
 
-		defer channel.Close()
+		defer conn.Close()
 
-		go ssh.DiscardRequests(reqs)
+		log.Infof("Incoming request from %s", conn.RemoteAddr())
 
-		// Forward requests?
-	} else {
-		log.Info("Couldn't find tunnel")
+		go func() {
+			_, err = io.Copy(conn, channel)
+			if err != nil {
+				conn.Close()
+				log.Info(fmt.Sprintf("Couldn't copy request to tunnel: %s", err))
+				return
+			}
+		}()
+
+		go func() {
+			_, err = io.Copy(channel, conn)
+			if err != nil {
+				conn.Close()
+				log.Info(fmt.Sprintf("Couldn't copy request to tunnel: %s", err))
+				return
+			}
+		}()
 	}
 }
