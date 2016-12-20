@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
@@ -27,29 +26,15 @@ func init() {
 }
 
 const (
-	privateHostKeyPath = "./tunneled.master.key"
-	port               = "2222"
+	sshServerKeyPath = "./server_id_rsa"
+	sshListenPort    = "2222"
 )
 
-type tunnel struct {
-	user            *user
-	source          string
-	destinationPort uint32
-	connection      *ssh.ServerConn
-}
-
-//TODO: Find a better name
-type tcpIpForwardPayload struct {
-	BindIP   string
-	BindPort uint32
-}
-
-type tunnelServer struct {
+type sshServer struct {
 	config  *ssh.ServerConfig
 	port    string
-	tunnels map[string]*tunnel
 	users   map[string]*user
-	sync.Mutex
+	tunnels map[string]*tunnel
 }
 
 type user struct {
@@ -58,72 +43,88 @@ type user struct {
 	subdomain string
 }
 
-var server = &tunnelServer{
-	port:    port,
+type tunnel struct {
+	user    *user
+	channel ssh.Channel
+}
+
+type requestDirector struct {
+	port string
+}
+
+var newSSHServer = &sshServer{
+	port:    sshListenPort,
 	tunnels: map[string]*tunnel{},
 	users:   map[string]*user{},
 }
 
-func main() {
-	sshConfig := &ssh.ServerConfig{
-		PublicKeyCallback: authorizeByPublicKey,
-	}
-
-	hostKey := findOrCreateHostKey()
-	sshConfig.AddHostKey(hostKey)
-
-	server.config = sshConfig
-	server.hydrateUsers()
-
-	server.Start()
+var newRequestDirector = &requestDirector{
+	port: "8001",
 }
 
-func findOrCreateHostKey() ssh.Signer {
-	if _, err := os.Stat(privateHostKeyPath); os.IsNotExist(err) {
-		log.Info("Host SSH key pair does not exist, creating...")
-
-		err := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "").Run()
-		if err != nil {
-			log.Panicf("Failed to create key pair for host: %s", err)
-		}
-
-		log.Debug("Host key pair created")
+func main() {
+	sshConfig := &ssh.ServerConfig{
+		PublicKeyCallback: newSSHServer.publicKeyAuthStrategy,
 	}
 
-	hostKeyBytes, err := ioutil.ReadFile(privateHostKeyPath)
+	sshConfig.AddHostKey(newSSHServer.key())
+
+	newSSHServer.config = sshConfig
+	newSSHServer.populateUsers()
+
+	newSSHServer.Start()
+}
+
+func (server *sshServer) key() ssh.Signer {
+	if _, err := os.Stat(sshServerKeyPath); os.IsNotExist(err) {
+		log.Info("SSH server key pair does not exist, creating...")
+
+		err := exec.Command("ssh-keygen", "-f", sshServerKeyPath, "-t", "rsa", "-N", "").Run()
+		if err != nil {
+			log.Panicf("Failed to create SSH key pair for host: %s", err)
+		}
+
+		log.Debug("SSH server key pair created")
+	}
+
+	keyBytes, err := ioutil.ReadFile(sshServerKeyPath)
 	if err != nil {
 		log.Panicf("Failed to load host's private SSH key: %s", err)
 	}
 
-	hostKey, err := ssh.ParsePrivateKey(hostKeyBytes)
+	key, err := ssh.ParsePrivateKey(keyBytes)
 	if err != nil {
 		log.Panicf("Failed to parse host's private SSH key: %s", err)
 	}
 
-	return hostKey
+	return key
 }
 
-func convertPublicKeyToString(key ssh.PublicKey) string {
-	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-}
+func (server *sshServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+	convertPublicKeyToString := func(key ssh.PublicKey) string {
+		return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	}
 
-func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-	user := server.users[conn.User()]
 	publicKey := convertPublicKeyToString(key)
-	serverPublicKey := convertPublicKeyToString(findOrCreateHostKey().PublicKey())
+	serverPublicKey := convertPublicKeyToString(server.key().PublicKey())
 
 	if publicKey == serverPublicKey {
 		return &ssh.Permissions{}, nil
-	} else if user != nil && user.publicKey == publicKey {
-		log.Debugf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr())
+	}
+
+	user := server.users[conn.User()]
+
+	if user != nil && publicKey == user.publicKey {
+		log.Infof("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr())
 		return &ssh.Permissions{}, nil
 	} else {
-		log.Debugf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr())
+		log.Infof("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr())
 		return nil, errors.New("Unauthorized access")
 	}
 }
 
-func (server *tunnelServer) hydrateUsers() {
+// TODO: Move to a database
+func (server *sshServer) populateUsers() {
 	server.users["bswinnerton"] = &user{
 		login:     "brooks",
 		subdomain: "noodlepuff.com",
@@ -131,12 +132,12 @@ func (server *tunnelServer) hydrateUsers() {
 	}
 }
 
-func (server *tunnelServer) Start() error {
-	log.Info("Starting server...\n")
-	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
+func (server *sshServer) Start() {
+	log.Info("Starting SSH server...\n")
 
+	listener, err := net.Listen("tcp", "0.0.0.0:"+server.port)
 	if err != nil {
-		log.Fatalf("Could not start server: %s", err)
+		log.Fatalf("Could not start SSH server: %s", err)
 	}
 
 	defer listener.Close()
@@ -144,7 +145,7 @@ func (server *tunnelServer) Start() error {
 	for {
 		tcpConn, err := listener.Accept()
 		if err != nil {
-			log.Warnf("Failed to accept incoming connection: %s", err)
+			log.Warnf("Failed to accept incoming SSH connection: %s", err)
 		}
 
 		log.Infof("Beginning SSH handshake for %s", tcpConn.RemoteAddr())
@@ -156,47 +157,77 @@ func (server *tunnelServer) Start() error {
 			} else {
 				log.Infof("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion())
 
-				go handleRequests(reqs, sshConn, server)
+				go handleRequests(reqs, sshConn)
 				go handleChannels(chans, sshConn)
 			}
 		}()
 	}
 }
 
-func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunnelServer) {
+func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
-			var payload tcpIpForwardPayload
-			err := ssh.Unmarshal(req.Payload, &payload)
+			type tcpIpForwardRequestPayload struct {
+				Raddr string
+				Rport uint32
+			}
+
+			var requestPayload tcpIpForwardRequestPayload
+
+			err := ssh.Unmarshal(req.Payload, &requestPayload)
 			if err != nil {
-				log.Warnf("Malformed request %s", err)
+				log.Warnf("Malformed tcpip-forward request %s", err)
 				req.Reply(false, nil)
 			}
 
-			user := server.users[conn.User()]
-			port := payload.BindPort
-			addr := payload.BindIP
+			remoteAddr := requestPayload.Raddr
+			remotePort := requestPayload.Rport
+
+			user := newSSHServer.users[conn.User()]
 
 			if user != nil {
-				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login)
+				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, remotePort, remoteAddr, user.login)
 
-				tun := tunnel{
-					user:            user,
-					destinationPort: port,
-					source:          addr,
-					connection:      conn,
+				type forwardedTcpIpRequestPayload struct {
+					Raddr string
+					Rport uint32
+					Laddr string
+					Lport uint32
 				}
 
-				server.Lock()
-				server.tunnels[user.subdomain] = &tun
-				server.Unlock()
+				channelPayload := &forwardedTcpIpRequestPayload{
+					Raddr: remoteAddr,
+					Rport: remotePort,
+					Laddr: "localhost",
+					Lport: 8000, // TODO: How can we determine this?
+				}
 
-				startReverseTunnel(tun)
+				channel, reqs, err := conn.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(channelPayload))
+				if err != nil {
+					log.Warn("Failed to open channel on tunnel: ", err)
+					return
+				}
+
+				go ssh.DiscardRequests(reqs)
+				defer channel.Close()
+
+				tun := tunnel{
+					user:    user,
+					channel: channel,
+				}
+
+				// TODO: Make this threadsafe
+				newSSHServer.tunnels[user.subdomain] = &tun
+
+				go newRequestDirector.Start(tun)
+			} else {
+				log.Warn("User '%s' does not exist", conn.User())
+				req.Reply(false, nil)
 			}
 
 			req.Reply(true, []byte{})
 		} else {
-			log.Warn("got unexpected request %q WantReply=%q: %q\n", req.Type, req.WantReply, req.Payload)
+			log.Warn("Received non tcpip-forward request: %q WantReply=%q: %q", req.Type, req.WantReply, req.Payload)
 			req.Reply(false, nil)
 		}
 	}
@@ -216,48 +247,26 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	}
 }
 
-func startReverseTunnel(tun tunnel) {
-	type channelOpenForwardMsg struct {
-		raddr string
-		rport uint32
-		laddr string
-		lport uint32
-	}
+func (director *requestDirector) Start(tun tunnel) {
+	log.Info("Starting Request Director...\n")
 
-	req := &channelOpenForwardMsg{
-		raddr: "localhost",
-		rport: 8001,
-		laddr: "localhost",
-		lport: 8000,
-	}
-
-	channel, reqs, err := tun.connection.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(req))
+	listener, err := net.Listen("tcp", "0.0.0.0:"+director.port)
 	if err != nil {
-		log.Error("failed-to-open-channel: ", err)
-		return
-	}
-
-	defer channel.Close()
-
-	go ssh.DiscardRequests(reqs)
-
-	listener, err := net.Listen("tcp", "0.0.0.0:8001")
-	if err != nil {
-		log.Warnf("Could not start listening on 0.0.0.0:8001: ", err)
+		log.Warnf("Could not start listening on 0.0.0.0:%s: %s", director.port, err)
 	}
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Panicf("Could not accept request: ", err)
+			log.Panicf("Could not accept request: %s", err)
 		}
-
-		defer conn.Close()
 
 		log.Infof("Incoming request from %s", conn.RemoteAddr())
 
+		// TODO: Determine tunnel from Host
+
 		go func() {
-			_, err = io.Copy(conn, channel)
+			_, err = io.Copy(conn, tun.channel)
 			if err != nil {
 				conn.Close()
 				log.Infof("Couldn't copy request to tunnel: %s", err)
@@ -266,7 +275,7 @@ func startReverseTunnel(tun tunnel) {
 		}()
 
 		go func() {
-			_, err = io.Copy(channel, conn)
+			_, err = io.Copy(tun.channel, conn)
 			if err != nil {
 				conn.Close()
 				log.Infof("Couldn't copy request to tunnel: %s", err)

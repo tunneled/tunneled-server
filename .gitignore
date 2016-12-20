@@ -1,3 +1,2 @@
 tunneled-server
-tunneled.master.key
-tunneled.master.key.pub
+server_id_rsa*
