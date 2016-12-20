@@ -9,7 +9,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -85,20 +84,20 @@ func findOrCreateHostKey() ssh.Signer {
 
 		err := exec.Command("ssh-keygen", "-f", privateHostKeyPath, "-t", "rsa", "-N", "").Run()
 		if err != nil {
-			log.Panic(fmt.Sprintf("Failed to create key pair for host %s", err))
-		} else {
-			log.Debug("Host key pair created")
+			log.Panicf("Failed to create key pair for host: %s", err)
 		}
+
+		log.Debug("Host key pair created")
 	}
 
 	hostKeyBytes, err := ioutil.ReadFile(privateHostKeyPath)
 	if err != nil {
-		log.Panic("Failed to load host's private SSH key")
+		log.Panicf("Failed to load host's private SSH key: %s", err)
 	}
 
 	hostKey, err := ssh.ParsePrivateKey(hostKeyBytes)
 	if err != nil {
-		log.Panic("Failed to parse host's private SSH key")
+		log.Panicf("Failed to parse host's private SSH key: %s", err)
 	}
 
 	return hostKey
@@ -116,10 +115,10 @@ func authorizeByPublicKey(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permis
 	if publicKey == serverPublicKey {
 		return &ssh.Permissions{}, nil
 	} else if user != nil && user.publicKey == publicKey {
-		log.Debug(fmt.Sprintf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr()))
+		log.Debugf("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr())
 		return &ssh.Permissions{}, nil
 	} else {
-		log.Debug(fmt.Sprintf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr()))
+		log.Debugf("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr())
 		return nil, errors.New("Unauthorized access")
 	}
 }
@@ -137,7 +136,7 @@ func (server *tunnelServer) Start() error {
 	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Could not start server: %s", err))
+		log.Fatalf("Could not start server: %s", err)
 	}
 
 	defer listener.Close()
@@ -145,17 +144,17 @@ func (server *tunnelServer) Start() error {
 	for {
 		tcpConn, err := listener.Accept()
 		if err != nil {
-			log.Warn(fmt.Sprintf("Failed to accept incoming connection (%s)", err))
+			log.Warnf("Failed to accept incoming connection: %s", err)
 		}
 
-		log.Info(fmt.Sprintf("Beginning SSH handshake for %s", tcpConn.RemoteAddr()))
+		log.Infof("Beginning SSH handshake for %s", tcpConn.RemoteAddr())
 
 		go func() {
 			sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 			if err != nil {
-				log.Info(fmt.Sprintf("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err))
+				log.Infof("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err)
 			} else {
-				log.Info(fmt.Sprintf("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion()))
+				log.Infof("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion())
 
 				go handleRequests(reqs, sshConn, server)
 				go handleChannels(chans, sshConn)
@@ -170,7 +169,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			var payload tcpIpForwardPayload
 			err := ssh.Unmarshal(req.Payload, &payload)
 			if err != nil {
-				log.Warn(fmt.Sprintf("Malformed request %s", err))
+				log.Warnf("Malformed request %s", err)
 				req.Reply(false, nil)
 			}
 
@@ -179,7 +178,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn, server *tunn
 			addr := payload.BindIP
 
 			if user != nil {
-				log.Info(fmt.Sprintf("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login))
+				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, port, addr, user.login)
 
 				tun := tunnel{
 					user:            user,
@@ -210,7 +209,7 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 
 			if channelType != "direct-tcpip" {
 				newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
-				log.Info(fmt.Sprintf("Rejected connection for %s@%s: didn't pass -NR flags\n", conn.User(), conn.RemoteAddr()))
+				log.Infof("Rejected connection for %s@%s: didn't pass -NR flags\n", conn.User(), conn.RemoteAddr())
 				return
 			}
 		}()
@@ -244,13 +243,13 @@ func startReverseTunnel(tun tunnel) {
 
 	listener, err := net.Listen("tcp", "0.0.0.0:8001")
 	if err != nil {
-		log.Warn(fmt.Sprintf("Could not start listening on 0.0.0.0:8001: ", err))
+		log.Warnf("Could not start listening on 0.0.0.0:8001: ", err)
 	}
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Panic(fmt.Sprintf("Could not accept request: ", err))
+			log.Panicf("Could not accept request: ", err)
 		}
 
 		defer conn.Close()
@@ -261,7 +260,7 @@ func startReverseTunnel(tun tunnel) {
 			_, err = io.Copy(conn, channel)
 			if err != nil {
 				conn.Close()
-				log.Info(fmt.Sprintf("Couldn't copy request to tunnel: %s", err))
+				log.Infof("Couldn't copy request to tunnel: %s", err)
 				return
 			}
 		}()
@@ -270,7 +269,7 @@ func startReverseTunnel(tun tunnel) {
 			_, err = io.Copy(channel, conn)
 			if err != nil {
 				conn.Close()
-				log.Info(fmt.Sprintf("Couldn't copy request to tunnel: %s", err))
+				log.Infof("Couldn't copy request to tunnel: %s", err)
 				return
 			}
 		}()
