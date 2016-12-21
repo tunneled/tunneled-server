@@ -8,14 +8,10 @@
 package main
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
-	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"strings"
@@ -48,8 +44,10 @@ type user struct {
 }
 
 type tunnel struct {
-	user    *user
-	channel ssh.Channel
+	user       *user
+	connection ssh.Conn
+	remoteAddr string
+	remotePort uint32
 }
 
 type requestDirector struct {
@@ -76,8 +74,7 @@ func main() {
 	newSSHServer.config = sshConfig
 	newSSHServer.populateUsers()
 
-	go newSSHServer.Start()
-	newRequestDirector.Start()
+	newSSHServer.Start()
 }
 
 func (server *sshServer) key() ssh.Signer {
@@ -172,63 +169,44 @@ func (server *sshServer) Start() {
 func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
-			type tcpIpForwardRequestPayload struct {
-				Raddr string
-				Rport uint32
-			}
-
-			var requestPayload tcpIpForwardRequestPayload
-
-			err := ssh.Unmarshal(req.Payload, &requestPayload)
-			if err != nil {
-				log.Warnf("Malformed tcpip-forward request %s", err)
-				req.Reply(false, nil)
-			}
-
-			remoteAddr := requestPayload.Raddr
-			remotePort := requestPayload.Rport
-
 			user := newSSHServer.users[conn.User()]
 
 			if user != nil {
-				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, remotePort, remoteAddr, user.login)
-
-				type forwardedTcpIpRequestPayload struct {
+				type tcpIpForwardRequestPayload struct {
 					Raddr string
 					Rport uint32
-					Laddr string
-					Lport uint32
 				}
 
-				channelPayload := &forwardedTcpIpRequestPayload{
-					Raddr: remoteAddr,
-					Rport: remotePort,
-					Laddr: "localhost",
-					Lport: 8000, // TODO: How can we determine this?
-				}
+				var requestPayload tcpIpForwardRequestPayload
 
-				channel, reqs, err := conn.Conn.OpenChannel("forwarded-tcpip", ssh.Marshal(channelPayload))
+				err := ssh.Unmarshal(req.Payload, &requestPayload)
 				if err != nil {
-					log.Warn("Failed to open channel on tunnel: ", err)
-					return
+					log.Warnf("Malformed tcpip-forward request %s", err)
+					req.Reply(false, nil)
 				}
 
-				go ssh.DiscardRequests(reqs)
-				defer channel.Close()
+				remoteAddr := requestPayload.Raddr
+				remotePort := requestPayload.Rport
+
+				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, remotePort, remoteAddr, user.login)
 
 				tun := tunnel{
-					user:    user,
-					channel: channel,
+					user:       user,
+					connection: conn,
+					remoteAddr: remoteAddr,
+					remotePort: remotePort,
 				}
 
 				// TODO: Make this threadsafe
 				newSSHServer.tunnels[user.subdomain] = &tun
+
+				newRequestDirector.Start(tun)
+
+				req.Reply(true, []byte{})
 			} else {
-				log.Warn("User '%s' does not exist", conn.User())
+				log.Warn("Cannot create tunnel for unidentified user")
 				req.Reply(false, nil)
 			}
-
-			req.Reply(true, []byte{})
 		} else {
 			log.Warn("Received non tcpip-forward request: %q WantReply=%q: %q", req.Type, req.WantReply, req.Payload)
 			req.Reply(false, nil)
@@ -250,37 +228,65 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	}
 }
 
-func (director *requestDirector) Start() {
-	log.Info("Starting Request Director...\n")
-
-	http.HandleFunc("/", director.handler)
-	err := http.ListenAndServe(":"+director.port, nil)
-	if err != nil {
-		log.Fatalf("Could not start request director: ", err)
+func (server *sshServer) createChannel(tun tunnel) ssh.Channel {
+	type forwardedTcpIpRequestPayload struct {
+		Raddr string
+		Rport uint32
+		Laddr string
+		Lport uint32
 	}
+
+	channelPayload := ssh.Marshal(&forwardedTcpIpRequestPayload{
+		Raddr: tun.remoteAddr,
+		Rport: tun.remotePort,
+		Laddr: "localhost",
+		Lport: 8000, // TODO: How can we determine this?
+	})
+
+	channel, reqs, err := tun.connection.OpenChannel("forwarded-tcpip", channelPayload)
+	if err != nil {
+		log.Warn("Failed to open channel on tunnel: ", err)
+	}
+
+	go ssh.DiscardRequests(reqs)
+
+	return channel
 }
 
-func (director *requestDirector) handler(writer http.ResponseWriter, request *http.Request) {
-	host, _, err := net.SplitHostPort(request.Host)
+func (director *requestDirector) Start(tun tunnel) {
+	log.Info("Starting Request Director...\n")
+
+	listener, err := net.Listen("tcp", ":"+director.port)
 	if err != nil {
-		log.Warnf("Could not parse host: %s", request.Host)
+		log.Fatalf("Could not start listener on port %s: %s", director.port, err)
 	}
 
-	tun := newSSHServer.tunnels[host]
+	defer listener.Close()
 
-	if tun != nil {
-		log.Infof("Directing request %s%s to %s's tunnel", request.Host, request.URL, tun.user.login)
-
-		requestBytes, err := httputil.DumpRequest(request, true)
+	for {
+		request, err := listener.Accept()
 		if err != nil {
-			log.Warn("Could not dump request: %s", err)
+			log.Warnf("Could not accept connection: %s", err)
 		}
 
-		requestReader := bytes.NewReader(requestBytes)
+		// TODO: Determine tunnel independent of tun argument
 
-		io.Copy(tun.channel, requestReader)
-		io.Copy(writer, tun.channel)
-	} else {
-		fmt.Fprintf(writer, "No tunnel found")
+		channel := newSSHServer.createChannel(tun)
+
+		go func() {
+			_, err := io.Copy(channel, request)
+			if err != nil {
+				log.Warnf("Couldn't copy request to tunnel: %s", err)
+				return
+			}
+		}()
+
+		go func() {
+			_, err := io.Copy(request, channel)
+			if err != nil {
+				log.Warnf("Couldn't copy response from tunnel: %s", err)
+				return
+			}
+		}()
 	}
 }
