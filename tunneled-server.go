@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -26,21 +27,22 @@ func init() {
 }
 
 const (
-	sshServerKeyPath = "./server_id_rsa"
 	sshListenPort    = "2222"
+	sshServerKeyPath = "./server_id_rsa"
+	userDataPath     = "./users.json"
 )
 
 type sshServer struct {
 	config  *ssh.ServerConfig
 	port    string
-	users   map[string]*user
 	tunnels map[string]*tunnel
+	users   map[string]*user
 }
 
 type user struct {
-	login     string
-	publicKey string
-	subdomain string
+	Login     string
+	PublicKey string
+	Subdomain string
 }
 
 type tunnel struct {
@@ -65,6 +67,8 @@ var newRequestDirector = &requestDirector{
 }
 
 func main() {
+	newSSHServer.loadUsers()
+
 	sshConfig := &ssh.ServerConfig{
 		PublicKeyCallback: newSSHServer.publicKeyAuthStrategy,
 	}
@@ -72,9 +76,17 @@ func main() {
 	sshConfig.AddHostKey(newSSHServer.key())
 
 	newSSHServer.config = sshConfig
-	newSSHServer.populateUsers()
 
 	newSSHServer.Start()
+}
+
+func (server *sshServer) loadUsers() {
+	usersFile, err := os.Open(userDataPath)
+	if err != nil {
+		log.Panicf("Failed to read users from JSON file: %s", err)
+	}
+
+	json.NewDecoder(usersFile).Decode(&server.users)
 }
 
 func (server *sshServer) key() ssh.Signer {
@@ -115,22 +127,14 @@ func (server *sshServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.Pu
 	}
 
 	user := server.users[conn.User()]
+	user.Login = conn.User()
 
-	if user != nil && publicKey == user.publicKey {
+	if user != nil && publicKey == user.PublicKey {
 		log.Infof("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr())
 		return &ssh.Permissions{}, nil
 	} else {
 		log.Infof("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr())
 		return nil, errors.New("Unauthorized access")
-	}
-}
-
-// TODO: Move to a database
-func (server *sshServer) populateUsers() {
-	server.users["bswinnerton"] = &user{
-		login:     "brooks",
-		subdomain: "noodlepuff.com",
-		publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7",
 	}
 }
 
@@ -188,7 +192,9 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 				remoteAddr := requestPayload.Raddr
 				remotePort := requestPayload.Rport
 
-				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", user.subdomain, remotePort, remoteAddr, user.login)
+				domain := user.Subdomain + ".tunneled.computer"
+
+				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", domain, remotePort, remoteAddr, user.Login)
 
 				tun := tunnel{
 					user:       user,
@@ -198,7 +204,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 				}
 
 				// TODO: Make this threadsafe
-				newSSHServer.tunnels[user.subdomain] = &tun
+				newSSHServer.tunnels[domain] = &tun
 
 				newRequestDirector.Start(tun)
 
