@@ -8,11 +8,14 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -77,7 +80,8 @@ func main() {
 
 	newSSHServer.config = sshConfig
 
-	newSSHServer.Start()
+	go newSSHServer.Start()
+	newRequestDirector.Start()
 }
 
 func (server *sshServer) loadUsers() {
@@ -206,8 +210,6 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 				// TODO: Make this threadsafe
 				newSSHServer.tunnels[domain] = &tun
 
-				newRequestDirector.Start(tun)
-
 				req.Reply(true, []byte{})
 			} else {
 				log.Warn("Cannot create tunnel for unidentified user")
@@ -259,7 +261,7 @@ func (server *sshServer) createChannel(tun tunnel) ssh.Channel {
 	return channel
 }
 
-func (director *requestDirector) Start(tun tunnel) {
+func (director *requestDirector) Start() {
 	log.Info("Starting Request Director...\n")
 
 	listener, err := net.Listen("tcp", ":"+director.port)
@@ -275,14 +277,27 @@ func (director *requestDirector) Start(tun tunnel) {
 			log.Warnf("Could not accept connection: %s", err)
 		}
 
-		log.Info("Request received from %s", request.RemoteAddr())
+		var requestBuf bytes.Buffer
+		requestReader := io.TeeReader(request, &requestBuf)
 
-		// TODO: Determine tunnel independent of tun argument
+		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
+		if err != nil {
+			log.Warnf("Couldn't parse request as HTTP: %s", err)
+		}
 
-		channel := newSSHServer.createChannel(tun)
+		log.Infof("Incoming request for http://%s", httpRequest.Host)
+
+		domain, _, err := net.SplitHostPort(httpRequest.Host)
+		if err != nil {
+			log.Warnf("Could not determine hostname of incoming request: %s", err)
+		}
+
+		tun := newSSHServer.tunnels[domain]
+
+		channel := newSSHServer.createChannel(*tun)
 
 		go func() {
-			_, err := io.Copy(channel, request)
+			_, err := io.Copy(channel, &requestBuf)
 			if err != nil {
 				log.Warnf("Couldn't copy request to tunnel: %s", err)
 				return
