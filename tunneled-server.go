@@ -269,6 +269,8 @@ func (director *requestDirector) Start(tun tunnel) {
 			log.Warnf("Could not accept connection: %s", err)
 		}
 
+		log.Info("Request received from %s", request.RemoteAddr())
+
 		// TODO: Determine tunnel independent of tun argument
 
 		channel := newSSHServer.createChannel(tun)
