@@ -286,17 +286,17 @@ func (director *RequestDirector) Start() {
 		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
 		if err != nil {
 			log.Warnf("Couldn't parse request as HTTP: %s", err)
-			return
+			break
 		}
 
 		log.Infof("Incoming request for http://%s", httpRequest.Host)
 
 		domain := httpRequest.Host
 
-		if requestDirector.port != "80" || requestDirector.port != "443" {
+		if requestDirector.port != "80" {
 			domain, _, err = net.SplitHostPort(httpRequest.Host)
 			if err != nil {
-				log.Warn(err)
+				log.Warnf("Could not split host and port: %s", err)
 			}
 		}
 
@@ -322,6 +322,8 @@ func (director *RequestDirector) Start() {
 				}
 			}()
 		} else {
+			log.Infof("Couldn't find a tunnel for: %s", httpRequest.Host)
+			io.WriteString(request, "No tunnel found.\n")
 			request.Close()
 		}
 	}
