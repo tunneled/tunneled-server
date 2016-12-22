@@ -31,7 +31,7 @@ func init() {
 
 const (
 	sshListenPort    = "2222"
-	sshServerKeyPath = "./server_id_rsa"
+	sshServerKeyPath = "./tunneled_id_rsa"
 	userDataPath     = "./users.json"
 )
 
@@ -66,7 +66,7 @@ var newSSHServer = &sshServer{
 }
 
 var newRequestDirector = &requestDirector{
-	port: "8001",
+	port: "80",
 }
 
 func main() {
@@ -275,6 +275,7 @@ func (director *requestDirector) Start() {
 		request, err := listener.Accept()
 		if err != nil {
 			log.Warnf("Could not accept connection: %s", err)
+			return
 		}
 
 		var requestBuf bytes.Buffer
@@ -283,16 +284,12 @@ func (director *requestDirector) Start() {
 		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
 		if err != nil {
 			log.Warnf("Couldn't parse request as HTTP: %s", err)
+			return
 		}
 
 		log.Infof("Incoming request for http://%s", httpRequest.Host)
 
-		domain, _, err := net.SplitHostPort(httpRequest.Host)
-		if err != nil {
-			log.Warnf("Could not determine hostname of incoming request: %s", err)
-		}
-
-		tun := newSSHServer.tunnels[domain]
+		tun := newSSHServer.tunnels[httpRequest.Host]
 
 		channel := newSSHServer.createChannel(*tun)
 
@@ -305,6 +302,9 @@ func (director *requestDirector) Start() {
 		}()
 
 		go func() {
+			defer channel.Close()
+			defer request.Close()
+
 			_, err := io.Copy(request, channel)
 			if err != nil {
 				log.Warnf("Couldn't copy response from tunnel: %s", err)
