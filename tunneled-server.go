@@ -264,6 +264,10 @@ func (server *SSHServer) createChannel(tun Tunnel) ssh.Channel {
 func (director *RequestDirector) Start() {
 	log.Info("Starting Request Director...\n")
 
+	if requestDirector.port == "" {
+		log.Fatal("The DIRECTOR_PORT environment variable must be set")
+	}
+
 	listener, err := net.Listen("tcp", ":"+director.port)
 	if err != nil {
 		log.Fatalf("Could not start listener on port %s: %s", director.port, err)
@@ -276,41 +280,42 @@ func (director *RequestDirector) Start() {
 			return
 		}
 
-		var requestBuf bytes.Buffer
-		requestReader := io.TeeReader(request, &requestBuf)
+		go func() {
+			var requestBuf bytes.Buffer
+			requestReader := io.TeeReader(request, &requestBuf)
 
-		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
-		if err != nil {
-			log.Warnf("Couldn't parse request as HTTP: %s", err)
-			return
-		}
+			httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
+			if err != nil {
+				log.Warnf("Couldn't parse request as HTTP: %s", err)
+				return
+			}
 
-		log.Infof("Incoming request for http://%s", httpRequest.Host)
+			log.Infof("Incoming request for http://%s", httpRequest.Host)
 
-		tun := sshServer.tunnels[httpRequest.Host]
-		if tun != nil {
-			channel := sshServer.createChannel(*tun)
+			tun := sshServer.tunnels[httpRequest.Host]
+			if tun != nil {
+				channel := sshServer.createChannel(*tun)
 
-			go func() {
-				_, err := io.Copy(channel, &requestBuf)
-				if err != nil {
-					log.Warnf("Couldn't copy request to tunnel: %s", err)
-					return
-				}
-			}()
+				go func() {
+					_, err := io.Copy(channel, &requestBuf)
+					if err != nil {
+						log.Warnf("Couldn't copy request to tunnel: %s", err)
+						return
+					}
+				}()
 
-			go func() {
-				defer channel.Close()
-				defer request.Close()
+				go func() {
+					defer request.Close()
 
-				_, err := io.Copy(request, channel)
-				if err != nil {
-					log.Warnf("Couldn't copy response from tunnel: %s", err)
-					return
-				}
-			}()
-		} else {
-			request.Close()
-		}
+					_, err := io.Copy(request, channel)
+					if err != nil {
+						log.Warnf("Couldn't copy response from tunnel: %s", err)
+						return
+					}
+				}()
+			} else {
+				request.Close()
+			}
+		}()
 	}
 }
