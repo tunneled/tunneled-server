@@ -331,7 +331,7 @@ func (director *RequestDirector) Start() {
 				log.Infof("Passed response back to http://%s", httpRequest.Host)
 			}()
 		} else {
-			log.Infof("Couldn't find a tunnel for: %s", httpRequest.Host)
+			log.Infof("Couldn't find a tunnel for: http://%s", httpRequest.Host)
 			io.WriteString(request, "No tunnel found.\n")
 			request.Close()
 		}
