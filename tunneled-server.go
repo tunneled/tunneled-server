@@ -143,7 +143,7 @@ func (server *SSHServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.Pu
 }
 
 func (server *SSHServer) Start() {
-	log.Info("Starting SSH server...\n")
+	log.Info("Starting SSH server...")
 
 	listener, err := net.Listen("tcp", "0.0.0.0:"+server.port)
 	if err != nil {
@@ -163,7 +163,7 @@ func (server *SSHServer) Start() {
 		go func() {
 			sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, server.config)
 			if err != nil {
-				log.Infof("Failed to handshake from %s: %s\n", tcpConn.RemoteAddr(), err)
+				log.Infof("Failed to handshake from %s: %s", tcpConn.RemoteAddr(), err)
 			} else {
 				log.Infof("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion())
 
@@ -198,7 +198,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 
 				domain := user.Subdomain + ".tunneled.computer"
 
-				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", domain, remotePort, remoteAddr, user.Login)
+				log.Infof("Creating tunnel from http://%s:%d to %s for %s", domain, remotePort, remoteAddr, user.Login)
 
 				tun := Tunnel{
 					user:       user,
@@ -229,14 +229,14 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 
 			if channelType != "direct-tcpip" {
 				newChannel.Reject(ssh.Prohibited, "direct-tcpip channels only (-NR)")
-				log.Infof("Rejected connection for %s@%s: didn't pass -NR flags\n", conn.User(), conn.RemoteAddr())
+				log.Infof("Rejected connection for %s@%s: didn't pass -NR flags", conn.User(), conn.RemoteAddr())
 				return
 			}
 		}()
 	}
 }
 
-func (server *SSHServer) createChannel(tun Tunnel) ssh.Channel {
+func (server *SSHServer) createChannel(tun Tunnel) (ssh.Channel, error) {
 	type forwardedTcpIpRequestPayload struct {
 		Raddr string
 		Rport uint32
@@ -253,16 +253,16 @@ func (server *SSHServer) createChannel(tun Tunnel) ssh.Channel {
 
 	channel, reqs, err := tun.connection.OpenChannel("forwarded-tcpip", channelPayload)
 	if err != nil {
-		log.Warn("Failed to open channel on tunnel: ", err)
+		return nil, err
 	}
 
 	go ssh.DiscardRequests(reqs)
 
-	return channel
+	return channel, nil
 }
 
 func (director *RequestDirector) Start() {
-	log.Info("Starting Request Director...\n")
+	log.Info("Starting Request Director...")
 
 	if requestDirector.port == "" {
 		log.Fatal("The DIRECTOR_PORT environment variable must be set")
@@ -277,8 +277,10 @@ func (director *RequestDirector) Start() {
 		request, err := listener.Accept()
 		if err != nil {
 			log.Warnf("Could not accept connection: %s", err)
-			return
+			continue
 		}
+
+		defer request.Close()
 
 		var requestBuf bytes.Buffer
 		requestReader := io.TeeReader(request, &requestBuf)
@@ -286,7 +288,7 @@ func (director *RequestDirector) Start() {
 		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
 		if err != nil {
 			log.Warnf("Couldn't parse request as HTTP: %s", err)
-			break
+			continue
 		}
 
 		log.Infof("Incoming request for http://%s", httpRequest.Host)
@@ -302,7 +304,13 @@ func (director *RequestDirector) Start() {
 
 		tun := sshServer.tunnels[domain]
 		if tun != nil {
-			channel := sshServer.createChannel(*tun)
+			channel, err := sshServer.createChannel(*tun)
+			if err != nil {
+				log.Infof("SSH connection severed: %s", err)
+				io.WriteString(request, "No tunnel found.\n")
+				request.Close()
+				continue
+			}
 
 			go func() {
 				_, err := io.Copy(channel, &requestBuf)
@@ -313,13 +321,14 @@ func (director *RequestDirector) Start() {
 			}()
 
 			go func() {
-				defer request.Close()
-
 				_, err := io.Copy(request, channel)
 				if err != nil {
 					log.Warnf("Couldn't copy response from tunnel: %s", err)
 					return
 				}
+
+				//FIXME: This doesn't get called until after SSH connection is severed
+				log.Infof("Passed response back to http://%s", httpRequest.Host)
 			}()
 		} else {
 			log.Infof("Couldn't find a tunnel for: %s", httpRequest.Host)
