@@ -269,8 +269,6 @@ func (director *RequestDirector) Start() {
 		log.Fatalf("Could not start listener on port %s: %s", director.port, err)
 	}
 
-	defer listener.Close()
-
 	for {
 		request, err := listener.Accept()
 		if err != nil {
