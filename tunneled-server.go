@@ -35,56 +35,56 @@ const (
 	userDataPath     = "./users.json"
 )
 
-type sshServer struct {
+type SSHServer struct {
 	config  *ssh.ServerConfig
 	port    string
-	tunnels map[string]*tunnel
-	users   map[string]*user
+	tunnels map[string]*Tunnel
+	users   map[string]*User
 }
 
-type user struct {
+type User struct {
 	Login     string
 	PublicKey string
 	Subdomain string
 }
 
-type tunnel struct {
-	user       *user
+type Tunnel struct {
+	user       *User
 	connection ssh.Conn
 	remoteAddr string
 	remotePort uint32
 }
 
-type requestDirector struct {
+type RequestDirector struct {
 	port string
 }
 
-var newSSHServer = &sshServer{
+var sshServer = &SSHServer{
 	port:    sshListenPort,
-	tunnels: map[string]*tunnel{},
-	users:   map[string]*user{},
+	tunnels: map[string]*Tunnel{},
+	users:   map[string]*User{},
 }
 
-var newRequestDirector = &requestDirector{
-	port: "80",
+var requestDirector = &RequestDirector{
+	port: os.Getenv("DIRECTOR_PORT"),
 }
 
 func main() {
-	newSSHServer.loadUsers()
+	sshServer.loadUsers()
 
 	sshConfig := &ssh.ServerConfig{
-		PublicKeyCallback: newSSHServer.publicKeyAuthStrategy,
+		PublicKeyCallback: sshServer.publicKeyAuthStrategy,
 	}
 
-	sshConfig.AddHostKey(newSSHServer.key())
+	sshConfig.AddHostKey(sshServer.key())
 
-	newSSHServer.config = sshConfig
+	sshServer.config = sshConfig
 
-	go newSSHServer.Start()
-	newRequestDirector.Start()
+	go sshServer.Start()
+	requestDirector.Start()
 }
 
-func (server *sshServer) loadUsers() {
+func (server *SSHServer) loadUsers() {
 	usersFile, err := os.Open(userDataPath)
 	if err != nil {
 		log.Panicf("Failed to read users from JSON file: %s", err)
@@ -93,7 +93,7 @@ func (server *sshServer) loadUsers() {
 	json.NewDecoder(usersFile).Decode(&server.users)
 }
 
-func (server *sshServer) key() ssh.Signer {
+func (server *SSHServer) key() ssh.Signer {
 	if _, err := os.Stat(sshServerKeyPath); os.IsNotExist(err) {
 		log.Info("SSH server key pair does not exist, creating...")
 
@@ -118,7 +118,7 @@ func (server *sshServer) key() ssh.Signer {
 	return key
 }
 
-func (server *sshServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+func (server *SSHServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	convertPublicKeyToString := func(key ssh.PublicKey) string {
 		return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
 	}
@@ -142,7 +142,7 @@ func (server *sshServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.Pu
 	}
 }
 
-func (server *sshServer) Start() {
+func (server *SSHServer) Start() {
 	log.Info("Starting SSH server...\n")
 
 	listener, err := net.Listen("tcp", "0.0.0.0:"+server.port)
@@ -177,7 +177,7 @@ func (server *sshServer) Start() {
 func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
-			user := newSSHServer.users[conn.User()]
+			user := sshServer.users[conn.User()]
 
 			if user != nil {
 				type tcpIpForwardRequestPayload struct {
@@ -200,7 +200,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 
 				log.Infof("Creating tunnel from http://%s:%d to %s for %s\n", domain, remotePort, remoteAddr, user.Login)
 
-				tun := tunnel{
+				tun := Tunnel{
 					user:       user,
 					connection: conn,
 					remoteAddr: remoteAddr,
@@ -208,7 +208,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 				}
 
 				// TODO: Make this threadsafe
-				newSSHServer.tunnels[domain] = &tun
+				sshServer.tunnels[domain] = &tun
 
 				req.Reply(true, []byte{})
 			} else {
@@ -236,7 +236,7 @@ func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	}
 }
 
-func (server *sshServer) createChannel(tun tunnel) ssh.Channel {
+func (server *SSHServer) createChannel(tun Tunnel) ssh.Channel {
 	type forwardedTcpIpRequestPayload struct {
 		Raddr string
 		Rport uint32
@@ -261,7 +261,7 @@ func (server *sshServer) createChannel(tun tunnel) ssh.Channel {
 	return channel
 }
 
-func (director *requestDirector) Start() {
+func (director *RequestDirector) Start() {
 	log.Info("Starting Request Director...\n")
 
 	listener, err := net.Listen("tcp", ":"+director.port)
@@ -289,27 +289,30 @@ func (director *requestDirector) Start() {
 
 		log.Infof("Incoming request for http://%s", httpRequest.Host)
 
-		tun := newSSHServer.tunnels[httpRequest.Host]
+		tun := sshServer.tunnels[httpRequest.Host]
+		if tun != nil {
+			channel := sshServer.createChannel(*tun)
 
-		channel := newSSHServer.createChannel(*tun)
+			go func() {
+				_, err := io.Copy(channel, &requestBuf)
+				if err != nil {
+					log.Warnf("Couldn't copy request to tunnel: %s", err)
+					return
+				}
+			}()
 
-		go func() {
-			_, err := io.Copy(channel, &requestBuf)
-			if err != nil {
-				log.Warnf("Couldn't copy request to tunnel: %s", err)
-				return
-			}
-		}()
+			go func() {
+				defer channel.Close()
+				defer request.Close()
 
-		go func() {
-			defer channel.Close()
-			defer request.Close()
-
-			_, err := io.Copy(request, channel)
-			if err != nil {
-				log.Warnf("Couldn't copy response from tunnel: %s", err)
-				return
-			}
-		}()
+				_, err := io.Copy(request, channel)
+				if err != nil {
+					log.Warnf("Couldn't copy response from tunnel: %s", err)
+					return
+				}
+			}()
+		} else {
+			request.Close()
+		}
 	}
 }
