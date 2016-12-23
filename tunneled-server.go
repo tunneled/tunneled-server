@@ -167,14 +167,14 @@ func (server *SSHServer) Start() {
 			} else {
 				log.Infof("Connection established for %s@%s (%s)", sshConn.User(), sshConn.RemoteAddr(), sshConn.ClientVersion())
 
-				go handleRequests(reqs, sshConn)
-				go handleChannels(chans, sshConn)
+				go server.handleRequests(reqs, sshConn)
+				go server.handleChannels(chans, sshConn)
 			}
 		}()
 	}
 }
 
-func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
+func (server *SSHServer) handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	for req := range reqs {
 		if req.Type == "tcpip-forward" {
 			user := sshServer.users[conn.User()]
@@ -222,7 +222,7 @@ func handleRequests(reqs <-chan *ssh.Request, conn *ssh.ServerConn) {
 	}
 }
 
-func handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
+func (server *SSHServer) handleChannels(chans <-chan ssh.NewChannel, conn *ssh.ServerConn) {
 	for newChannel := range chans {
 		go func() {
 			channelType := newChannel.ChannelType()
@@ -263,10 +263,6 @@ func (server *SSHServer) createChannel(tun Tunnel) (ssh.Channel, error) {
 
 func (director *RequestDirector) Start() {
 	log.Info("Starting Request Director...")
-
-	if requestDirector.port == "" {
-		log.Fatal("The DIRECTOR_PORT environment variable must be set")
-	}
 
 	listener, err := net.Listen("tcp", ":"+director.port)
 	if err != nil {
@@ -311,6 +307,8 @@ func (director *RequestDirector) Start() {
 				request.Close()
 				continue
 			}
+
+			defer channel.Close()
 
 			go func() {
 				_, err := io.Copy(channel, &requestBuf)
