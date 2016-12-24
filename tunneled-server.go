@@ -6,16 +6,16 @@ This application multiplexes SSH tunnels, proxying HTTP requests to the
 appropriate tunnel based on the subdomain of the request. It looks something
 like this:
 
-                  ┏━━━━━━━━┓                                          ┏━━━━━━━━┓
-                  ┃        ┃                                          ┃        ┃
-                  ┃        ┃ ━┓                                    ┏━ ┃        ┃
- ─────Request───▶ ┃        ┃  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛  ┃        ┃
-                  ┃Tunneled┃ ───────────────────────────────────────▶ ┃Tunneled┃
-                  ┃ Server ┃ ◀─────────────────────────────────────── ┃ Client ┃
- ◀────Response─── ┃        ┃  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓  ┃        ┃
-                  ┃        ┃ ━┛                                    ┗━ ┃        ┃
-                  ┃        ┃                                          ┃        ┃
-                  ┗━━━━━━━━┛                                          ┗━━━━━━━━┛
+                  ┌────────┐                                          ┌────────┐
+                  │        │                                          │        │
+                  │        │ ─┐                                    ┌─ │        │
+ ─────Request───▶ │        │  └────────────────────────────────────┘  │        │
+                  │Tunneled│ ───────────────────────────────────────▶ │Tunneled│
+                  │ Server │ ◀─────────────────────────────────────── │ Client │
+ ◀────Response─── │        │  ┌────────────────────────────────────┐  │        │
+                  │        │ ─┘                                    └─ │        │
+                  │        │                                          │        │
+                  └────────┘                                          └────────┘
 
 A standard SSH tunnel connects the server and tunnel. HTTP requests bound for a
 *.tunneled.computer domain are received by the server, and passed on to the
