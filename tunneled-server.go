@@ -22,26 +22,26 @@ A standard SSH tunnel connects the server and tunnel. HTTP requests bound for a
 appropriate client based on the subdomain the user has claimed. Zooming into the
 above diagram, we see:
 
-                    ┌──────────────────────────────────────┐  ┌─────────────────
-                    │                                      └──┘    Tunnel to
-                    │                                      ┌──┐ Alice's Computer
-                    │  ┌──────────────┐  ┌────────────┐    │  └─────────────────
-                    │  │              │  │            │    │  ┌─────────────────
-                    │  │  Request     │  │            │ ┌─▶└──┘    Tunnel to
-───────Request─────▶├┐ │  Director    │  │            │─┘  ┌──┐ Brooks' Computer
-                    ││ │              │  │ SSH Server │ ┌──│  └─────────────────
-                    │└▶│1. HTTP Parser├─▶│            │◀┘  │  ┌─────────────────
-                    │  │              │  │1. Auth     │    └──┘    Tunnel to
-                    │  │2. Subdomain  │  │            │    ┌──┐ Cat's Computer
-                    │ ┌┤   Lookup     │◀─┤2. Tunnel DB│    │  └─────────────────
-                    │ ││              │  │            │    │  ┌─────────────────
-◀──────Response─────┤◀┘│3. Tunnel     │  │            │    └──┘    Tunnel to
-                    │  │   Connection │  │            │    ┌──┐ Otto's Computer
-                    │  │              │  │            │    │  └─────────────────
-                    │  └──────────────┘  └────────────┘    │  ┌─────────────────
-                    │                                      └──┘    Tunnel to
-                    │                                      ┌──┐ Luna's Computer
-                    └──────────────────────────────────────┘  └─────────────────
+                  ┌────────────────────────────────────────┐  ┌─────────────────
+                  │                                        └──┘    Tunnel to
+                  │                                        ┌──┐ Alice's Computer
+                  │    ┌──────────────┐  ┌────────────┐    │  └─────────────────
+                  │    │              │  │            │    │  ┌─────────────────
+                  │    │  Request     │  │            │ ┌─▶└──┘    Tunnel to
+───────Request────│─┐  │  Director    │  │            │─┘  ┌──┐ Brooks' Computer
+                  │ │  │              │  │ SSH Server │ ┌──│  └─────────────────
+                  │ └─▶│1. HTTP Parser├─▶│            │◀┘  │  ┌─────────────────
+                  │    │              │  │1. Auth     │    └──┘    Tunnel to
+                  │    │2. Subdomain  │  │            │    ┌──┐ Cat's Computer
+                  │ ┌──│   Lookup     │◀─┤2. Tunnel DB│    │  └─────────────────
+                  │ │  │              │  │            │    │  ┌─────────────────
+◀──────Response───┤─┘  │3. Tunnel     │  │            │    └──┘    Tunnel to
+                  │    │   Connection │  │            │    ┌──┐ Otto's Computer
+                  │    │              │  │            │    │  └─────────────────
+                  │    └──────────────┘  └────────────┘    │  ┌─────────────────
+                  │                                        └──┘    Tunnel to
+                  │                                        ┌──┐ Luna's Computer
+                  └────────────────────────────────────────┘  └─────────────────
 
 This application consists of two parts:
 
