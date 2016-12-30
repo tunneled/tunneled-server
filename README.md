@@ -10,7 +10,7 @@ with the appropriate information. Ping @bswinnerton for review. Once merged,
 you'll be able to open up a new tunnel with this basic SSH command:
 
 ```
-$ ssh -nNT -R 80:localhost:8000 brooks@tunneled.computer
+$ ssh -p 2222 -nNT -R 80:localhost:8000 brooks@tunneled.computer
 ```
 
 Where `8000` is the local port the service you'd like to expose is running on,
