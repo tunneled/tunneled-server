@@ -363,7 +363,6 @@ func (director *RequestDirector) Start() {
 			if err != nil {
 				log.Info("Couldn't write 404 response")
 			}
-			request.Close()
 		}
 
 		channel, err := sshServer.createChannel(*tun)
@@ -377,7 +376,6 @@ func (director *RequestDirector) Start() {
 			if err != nil {
 				log.Info("Couldn't write 404 response")
 			}
-			request.Close()
 
 			continue
 		}
