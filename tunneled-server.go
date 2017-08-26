@@ -320,6 +320,20 @@ func (server *SSHServer) createChannel(tun Tunnel) (ssh.Channel, error) {
 	return channel, nil
 }
 
+func (director *RequestDirector) Handle404(request net.Conn) {
+	response := http.Response{
+		Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
+		StatusCode: 404,
+	}
+
+	err := response.Write(request)
+	if err != nil {
+		log.Info("Couldn't write 404 response")
+	}
+
+	request.Close()
+}
+
 func (director *RequestDirector) Start() {
 	log.Info("Starting Request Director...")
 
@@ -359,30 +373,14 @@ func (director *RequestDirector) Start() {
 		tun := sshServer.tunnels[domain]
 		if tun == nil {
 			log.Infof("Couldn't find a tunnel for: http://%s", domain)
-
-			response := http.Response{
-				Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
-				StatusCode: 404,
-			}
-
-			err := response.Write(request)
-			if err != nil {
-				log.Info("Couldn't write 404 response")
-			}
+			director.Handle404(request)
+			continue
 		}
 
 		channel, err := sshServer.createChannel(*tun)
 		if err != nil {
-			response := http.Response{
-				Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
-				StatusCode: 404,
-			}
-
-			err := response.Write(request)
-			if err != nil {
-				log.Info("Couldn't write 404 response")
-			}
-
+			log.Infof("Couldn't find a tunnel for: http://%s", domain)
+			director.Handle404(request)
 			continue
 		}
 
