@@ -353,9 +353,6 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
-		// Should this be done in the goroutine manually?
-		defer request.Close()
-
 		var requestBuf bytes.Buffer
 		requestReader := io.TeeReader(request, &requestBuf)
 
@@ -402,17 +399,16 @@ func (director *RequestDirector) Start() {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
+			channel.Close()
 			continue
 		}
-
-		// We ensure that the channel is closed in the goroutine below, is this
-		// necessary?
-		defer channel.Close()
 
 		go func() {
 			_, err := io.Copy(channel, &requestBuf)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy request to tunnel: %s", err)
+				request.Close()
+				channel.Close()
 				return
 			}
 
@@ -423,11 +419,14 @@ func (director *RequestDirector) Start() {
 			_, err := io.Copy(request, channel)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy response from tunnel: %s", err)
+				request.Close()
+				channel.Close()
 				return
 			}
 
 			contextLogger.Info("Returned response")
 
+			request.Close()
 			channel.Close()
 		}()
 	}
