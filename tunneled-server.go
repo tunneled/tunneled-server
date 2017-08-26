@@ -357,7 +357,9 @@ func (director *RequestDirector) Start() {
 
 		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
 		if err != nil {
-			log.Warnf("Couldn't parse request as HTTP: %s", err)
+			log.WithFields(log.Fields{
+				"ip_address": request.RemoteAddr(),
+			}).Warnf("Couldn't parse request as HTTP: %s", err)
 			continue
 		}
 
@@ -367,20 +369,28 @@ func (director *RequestDirector) Start() {
 		if requestDirector.port != "80" {
 			domain, _, err = net.SplitHostPort(domain)
 			if err != nil {
-				log.Warnf("Could not split host and port: %s", err)
+				log.WithFields(log.Fields{
+					"ip_address": request.RemoteAddr(),
+				}).Warnf("Could not split host and port: %s", err)
 			}
 		}
 
 		tun := sshServer.tunnels[domain]
 		if tun == nil {
-			log.Infof("Couldn't find a tunnel for: http://%s", domain)
+			log.WithFields(log.Fields{
+				"ip_address": request.RemoteAddr(),
+			}).Infof("Couldn't find a tunnel for: http://%s", domain)
+
 			director.Handle404(request)
 			continue
 		}
 
 		channel, err := sshServer.createChannel(*tun)
 		if err != nil {
-			log.Infof("Couldn't find a tunnel for: http://%s", domain)
+			log.WithFields(log.Fields{
+				"ip_address": request.RemoteAddr(),
+			}).Infof("Couldn't find a tunnel for: http://%s", domain)
+
 			director.Handle404(request)
 			continue
 		}
@@ -392,7 +402,9 @@ func (director *RequestDirector) Start() {
 		go func() {
 			_, err := io.Copy(channel, &requestBuf)
 			if err != nil {
-				log.Warnf("Couldn't copy request to tunnel: %s", err)
+				log.WithFields(log.Fields{
+					"ip_address": request.RemoteAddr(),
+				}).Warnf("Couldn't copy request to tunnel: %s", err)
 				return
 			}
 
@@ -402,11 +414,15 @@ func (director *RequestDirector) Start() {
 		go func() {
 			_, err := io.Copy(request, channel)
 			if err != nil {
-				log.Warnf("Couldn't copy response from tunnel: %s", err)
+				log.WithFields(log.Fields{
+					"ip_address": request.RemoteAddr(),
+				}).Warnf("Couldn't copy response from tunnel: %s", err)
 				return
 			}
 
-			log.Infof("Passed response back to http://%s", domain)
+			log.WithFields(log.Fields{
+				"ip_address": request.RemoteAddr(),
+			}).Infof("Passed response back to http://%s", domain)
 
 			channel.Close()
 		}()
