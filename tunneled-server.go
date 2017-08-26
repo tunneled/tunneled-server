@@ -72,6 +72,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
@@ -266,8 +267,11 @@ func (server *SSHServer) handleRequests(reqs <-chan *ssh.Request, conn *ssh.Serv
 					remotePort: remotePort,
 				}
 
-				// TODO: Make this threadsafe
+				var mutex = &sync.Mutex{}
+
+				mutex.Lock()
 				sshServer.tunnels[domain] = &tun
+				mutex.Unlock()
 
 				req.Reply(true, []byte{})
 			} else {
@@ -380,7 +384,12 @@ func (director *RequestDirector) Start() {
 			}
 		}
 
+		var mutex = &sync.Mutex{}
+
+		mutex.Lock()
 		tun := sshServer.tunnels[domain]
+		mutex.Unlock()
+
 		if tun == nil {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
