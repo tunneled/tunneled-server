@@ -394,7 +394,7 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
-		channel, err := sshServer.createChannel(*tun)
+		sshChannel, err := sshServer.createChannel(*tun)
 		if err != nil {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
@@ -402,31 +402,36 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
+		chDone := make(chan bool)
+
 		go func() {
-			_, err := io.Copy(channel, &requestBuf)
+			_, err := io.Copy(sshChannel, &requestBuf)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy request to tunnel: %s", err)
 				request.Close()
-				channel.Close()
+				sshChannel.Close()
 				return
 			}
 
-			channel.CloseWrite()
+			sshChannel.CloseWrite()
 		}()
 
 		go func() {
-			_, err := io.Copy(request, channel)
+			_, err := io.Copy(request, sshChannel)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy response from tunnel: %s", err)
 				request.Close()
-				channel.Close()
+				sshChannel.Close()
 				return
 			}
 
 			contextLogger.Info("Returned response")
 
-			request.Close()
-			channel.Close()
+			sshChannel.Close()
+			chDone <- true
 		}()
+
+		<-chDone
+		request.Close()
 	}
 }
