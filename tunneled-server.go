@@ -386,6 +386,8 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
+		// We ensure that the channel is closed in the goroutine below, is this
+		// necessary?
 		defer channel.Close()
 
 		go func() {
@@ -394,6 +396,8 @@ func (director *RequestDirector) Start() {
 				log.Warnf("Couldn't copy request to tunnel: %s", err)
 				return
 			}
+
+			channel.CloseWrite()
 		}()
 
 		go func() {
@@ -403,8 +407,9 @@ func (director *RequestDirector) Start() {
 				return
 			}
 
-			//FIXME: This doesn't get called until after SSH connection is severed
 			log.Infof("Passed response back to http://%s", httpRequest.Host)
+
+			channel.Close()
 		}()
 	}
 }
