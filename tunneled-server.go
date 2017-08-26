@@ -80,6 +80,12 @@ import (
 func init() {
 	log.SetOutput(os.Stderr)
 	log.SetLevel(log.DebugLevel)
+
+	formatter := &log.TextFormatter{
+		FullTimestamp: true,
+	}
+
+	log.SetFormatter(formatter)
 }
 
 const (
