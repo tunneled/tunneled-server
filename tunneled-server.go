@@ -399,7 +399,6 @@ func (director *RequestDirector) Start() {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
-			channel.Close()
 			continue
 		}
 
