@@ -307,7 +307,7 @@ func (server *SSHServer) createChannel(tun Tunnel) (ssh.Channel, error) {
 		Raddr: tun.remoteAddr,
 		Rport: tun.remotePort,
 		Laddr: "localhost",
-		Lport: 8000, // TODO: How can we determine this?
+		Lport: 8000, // TODO: How can we determine this? https://godoc.org/golang.org/x/crypto/ssh#ConnMetadata
 	})
 
 	channel, reqs, err := tun.connection.OpenChannel("forwarded-tcpip", channelPayload)
@@ -349,6 +349,7 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
+		// Should this be done in the goroutine manually?
 		defer request.Close()
 
 		var requestBuf bytes.Buffer
