@@ -190,10 +190,10 @@ func (server *SSHServer) publicKeyAuthStrategy(conn ssh.ConnMetadata, key ssh.Pu
 	}
 
 	user := server.users[conn.User()]
-	user.Login = conn.User()
 
 	if user != nil && publicKey == user.PublicKey {
 		log.Infof("Successfully authenticated %s@%s", conn.User(), conn.RemoteAddr())
+		user.Login = conn.User()
 		return &ssh.Permissions{}, nil
 	} else {
 		log.Infof("Unauthorized access from %s@%s", conn.User(), conn.RemoteAddr())
