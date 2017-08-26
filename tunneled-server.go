@@ -340,9 +340,8 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
-		log.Infof("Incoming request for http://%s", httpRequest.Host)
-
 		domain := httpRequest.Host
+		log.Infof("Incoming request for http://%s", domain)
 
 		if requestDirector.port != "80" {
 			domain, _, err = net.SplitHostPort(httpRequest.Host)
