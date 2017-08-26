@@ -405,7 +405,7 @@ func (director *RequestDirector) Start() {
 				return
 			}
 
-			log.Infof("Passed response back to http://%s", httpRequest.Host)
+			log.Infof("Passed response back to http://%s", domain)
 
 			channel.Close()
 		}()
