@@ -364,22 +364,25 @@ func (director *RequestDirector) Start() {
 		}
 
 		domain := httpRequest.Host
-		log.Infof("Incoming request for http://%s", domain)
+
+		contextLogger := log.WithFields(log.Fields{
+			"remote_ip":          request.RemoteAddr(),
+			"destination_domain": domain,
+			"destination_path":   httpRequest.URL.Path,
+		})
+
+		contextLogger.Info("Incoming request")
 
 		if requestDirector.port != "80" {
 			domain, _, err = net.SplitHostPort(domain)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"remote_ip": request.RemoteAddr(),
-				}).Warnf("Could not split host and port: %s", err)
+				contextLogger.Warnf("Could not split host and port: %s", err)
 			}
 		}
 
 		tun := sshServer.tunnels[domain]
 		if tun == nil {
-			log.WithFields(log.Fields{
-				"remote_ip": request.RemoteAddr(),
-			}).Infof("Couldn't find a tunnel for: http://%s", domain)
+			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
 			continue
@@ -387,9 +390,7 @@ func (director *RequestDirector) Start() {
 
 		channel, err := sshServer.createChannel(*tun)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"remote_ip": request.RemoteAddr(),
-			}).Infof("Couldn't find a tunnel for: http://%s", domain)
+			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
 			continue
@@ -402,9 +403,7 @@ func (director *RequestDirector) Start() {
 		go func() {
 			_, err := io.Copy(channel, &requestBuf)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"remote_ip": request.RemoteAddr(),
-				}).Warnf("Couldn't copy request to tunnel: %s", err)
+				contextLogger.Warnf("Couldn't copy request to tunnel: %s", err)
 				return
 			}
 
@@ -414,15 +413,11 @@ func (director *RequestDirector) Start() {
 		go func() {
 			_, err := io.Copy(request, channel)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"remote_ip": request.RemoteAddr(),
-				}).Warnf("Couldn't copy response from tunnel: %s", err)
+				contextLogger.Warnf("Couldn't copy response from tunnel: %s", err)
 				return
 			}
 
-			log.WithFields(log.Fields{
-				"remote_ip": request.RemoteAddr(),
-			}).Infof("Passed response back to http://%s", domain)
+			contextLogger.Info("Returned response")
 
 			channel.Close()
 		}()
