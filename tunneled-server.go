@@ -358,7 +358,7 @@ func (director *RequestDirector) Start() {
 		httpRequest, err := http.ReadRequest(bufio.NewReader(requestReader))
 		if err != nil {
 			log.WithFields(log.Fields{
-				"ip_address": request.RemoteAddr(),
+				"remote_ip": request.RemoteAddr(),
 			}).Warnf("Couldn't parse request as HTTP: %s", err)
 			continue
 		}
@@ -370,7 +370,7 @@ func (director *RequestDirector) Start() {
 			domain, _, err = net.SplitHostPort(domain)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"ip_address": request.RemoteAddr(),
+					"remote_ip": request.RemoteAddr(),
 				}).Warnf("Could not split host and port: %s", err)
 			}
 		}
@@ -378,7 +378,7 @@ func (director *RequestDirector) Start() {
 		tun := sshServer.tunnels[domain]
 		if tun == nil {
 			log.WithFields(log.Fields{
-				"ip_address": request.RemoteAddr(),
+				"remote_ip": request.RemoteAddr(),
 			}).Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
@@ -388,7 +388,7 @@ func (director *RequestDirector) Start() {
 		channel, err := sshServer.createChannel(*tun)
 		if err != nil {
 			log.WithFields(log.Fields{
-				"ip_address": request.RemoteAddr(),
+				"remote_ip": request.RemoteAddr(),
 			}).Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
@@ -403,7 +403,7 @@ func (director *RequestDirector) Start() {
 			_, err := io.Copy(channel, &requestBuf)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"ip_address": request.RemoteAddr(),
+					"remote_ip": request.RemoteAddr(),
 				}).Warnf("Couldn't copy request to tunnel: %s", err)
 				return
 			}
@@ -415,13 +415,13 @@ func (director *RequestDirector) Start() {
 			_, err := io.Copy(request, channel)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"ip_address": request.RemoteAddr(),
+					"remote_ip": request.RemoteAddr(),
 				}).Warnf("Couldn't copy response from tunnel: %s", err)
 				return
 			}
 
 			log.WithFields(log.Fields{
-				"ip_address": request.RemoteAddr(),
+				"remote_ip": request.RemoteAddr(),
 			}).Infof("Passed response back to http://%s", domain)
 
 			channel.Close()
