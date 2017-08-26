@@ -344,52 +344,15 @@ func (director *RequestDirector) Start() {
 		log.Infof("Incoming request for http://%s", domain)
 
 		if requestDirector.port != "80" {
-			domain, _, err = net.SplitHostPort(httpRequest.Host)
+			domain, _, err = net.SplitHostPort(domain)
 			if err != nil {
 				log.Warnf("Could not split host and port: %s", err)
 			}
 		}
 
 		tun := sshServer.tunnels[domain]
-		if tun != nil {
-			channel, err := sshServer.createChannel(*tun)
-			if err != nil {
-				response := http.Response{
-					Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
-					StatusCode: 404,
-				}
-
-				err := response.Write(request)
-				if err != nil {
-					log.Info("Couldn't write 404 response")
-				}
-				request.Close()
-
-				continue
-			}
-
-			defer channel.Close()
-
-			go func() {
-				_, err := io.Copy(channel, &requestBuf)
-				if err != nil {
-					log.Warnf("Couldn't copy request to tunnel: %s", err)
-					return
-				}
-			}()
-
-			go func() {
-				_, err := io.Copy(request, channel)
-				if err != nil {
-					log.Warnf("Couldn't copy response from tunnel: %s", err)
-					return
-				}
-
-				//FIXME: This doesn't get called until after SSH connection is severed
-				log.Infof("Passed response back to http://%s", httpRequest.Host)
-			}()
-		} else {
-			log.Infof("Couldn't find a tunnel for: http://%s", httpRequest.Host)
+		if tun == nil {
+			log.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			response := http.Response{
 				Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
@@ -402,5 +365,42 @@ func (director *RequestDirector) Start() {
 			}
 			request.Close()
 		}
+
+		channel, err := sshServer.createChannel(*tun)
+		if err != nil {
+			response := http.Response{
+				Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
+				StatusCode: 404,
+			}
+
+			err := response.Write(request)
+			if err != nil {
+				log.Info("Couldn't write 404 response")
+			}
+			request.Close()
+
+			continue
+		}
+
+		defer channel.Close()
+
+		go func() {
+			_, err := io.Copy(channel, &requestBuf)
+			if err != nil {
+				log.Warnf("Couldn't copy request to tunnel: %s", err)
+				return
+			}
+		}()
+
+		go func() {
+			_, err := io.Copy(request, channel)
+			if err != nil {
+				log.Warnf("Couldn't copy response from tunnel: %s", err)
+				return
+			}
+
+			//FIXME: This doesn't get called until after SSH connection is severed
+			log.Infof("Passed response back to http://%s", httpRequest.Host)
+		}()
 	}
 }
