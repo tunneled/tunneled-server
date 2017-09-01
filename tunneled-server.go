@@ -336,7 +336,7 @@ func (director *RequestDirector) Handle404(request net.Conn) {
 
 	err := response.Write(request)
 	if err != nil {
-		log.Info("Couldn't write 404 response")
+		log.Info("Could not write 404 response")
 	}
 
 	request.Close()
