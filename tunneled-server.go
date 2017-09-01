@@ -325,9 +325,13 @@ func (server *SSHServer) createChannel(tun Tunnel) (ssh.Channel, error) {
 }
 
 func (director *RequestDirector) Handle404(request net.Conn) {
+	bodyBuf := bytes.NewBufferString("No tunnel found.")
 	response := http.Response{
-		Body:       ioutil.NopCloser(bytes.NewBufferString("No tunnel found.")),
-		StatusCode: 404,
+		StatusCode:    404,
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Body:          ioutil.NopCloser(bodyBuf),
+		ContentLength: int64(bodyBuf.Len()),
 	}
 
 	err := response.Write(request)
