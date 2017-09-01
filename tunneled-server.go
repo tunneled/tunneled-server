@@ -334,12 +334,13 @@ func (director *RequestDirector) Handle404(request net.Conn) {
 		ContentLength: int64(bodyBuf.Len()),
 	}
 
-	err := response.Write(request)
-	if err != nil {
-		log.Info("Could not write 404 response")
+	if err := response.Write(request); err != nil {
+		log.Infof("Could not write 404 response: %s", err)
 	}
 
-	request.Close()
+	if err := request.Close(); err != nil {
+		log.Infof("Could not close client connection", err)
+	}
 }
 
 func (director *RequestDirector) Start() {
@@ -395,6 +396,7 @@ func (director *RequestDirector) Start() {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
+			request.Close()
 			continue
 		}
 
@@ -403,6 +405,7 @@ func (director *RequestDirector) Start() {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
+			request.Close()
 			continue
 		}
 
