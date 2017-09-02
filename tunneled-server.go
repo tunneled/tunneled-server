@@ -67,17 +67,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func init() {
-	log.SetOutput(os.Stderr)
-	log.SetLevel(log.DebugLevel)
-
-	formatter := &log.TextFormatter{
-		FullTimestamp: true,
-	}
-
-	log.SetFormatter(formatter)
-}
-
 type User struct {
 	Login     string
 	PublicKey string
@@ -89,6 +78,17 @@ type Tunnel struct {
 	connection ssh.Conn
 	remoteAddr string
 	remotePort uint32
+}
+
+func init() {
+	log.SetOutput(os.Stderr)
+	log.SetLevel(log.DebugLevel)
+
+	formatter := &log.TextFormatter{
+		FullTimestamp: true,
+	}
+
+	log.SetFormatter(formatter)
 }
 
 func main() {
