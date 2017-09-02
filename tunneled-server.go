@@ -402,7 +402,7 @@ func (director *RequestDirector) Start() {
 
 		sshChannel, err := sshServer.createChannel(*tun)
 		if err != nil {
-			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
+			contextLogger.Infof("Couldn't create a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
 			request.Close()
