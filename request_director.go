@@ -18,12 +18,14 @@ type RequestDirector struct {
 }
 
 func (director *RequestDirector) Start() {
-	log.Info("Starting Request Director...")
+	log.Info("Starting Request director...")
 
 	listener, err := net.Listen("tcp", ":"+director.port)
 	if err != nil {
 		log.Fatalf("Could not start listener on port %s: %s", director.port, err)
 	}
+
+	log.Infof("Request director listening on port %s", director.port)
 
 	for {
 		request, err := listener.Accept()

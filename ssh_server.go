@@ -108,6 +108,8 @@ func (server *SSHServer) Start() {
 		log.Fatalf("Could not start SSH server: %s", err)
 	}
 
+	log.Infof("SSH server listening on port %s", server.port)
+
 	defer listener.Close()
 
 	for {
