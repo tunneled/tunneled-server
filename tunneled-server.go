@@ -411,7 +411,6 @@ func (director *RequestDirector) Start() {
 			_, err := io.Copy(sshChannel, &requestBuf)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy request to tunnel: %s", err)
-				sshChannel.Close()
 				return
 			}
 
@@ -422,7 +421,6 @@ func (director *RequestDirector) Start() {
 			_, err := io.Copy(request, sshChannel)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy response from tunnel: %s", err)
-				sshChannel.Close()
 				return
 			}
 
@@ -432,7 +430,13 @@ func (director *RequestDirector) Start() {
 		}()
 
 		wg.Wait()
-		request.Close()
-		sshChannel.CloseWrite()
+
+		if err = request.Close(); err != nil {
+			contextLogger.Warnf("Could not close request: %s", err)
+		}
+
+		if err = sshChannel.Close(); err != nil {
+			contextLogger.Warnf("Could not close SSH channel: %s", err)
+		}
 	}
 }
