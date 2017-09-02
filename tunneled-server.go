@@ -415,7 +415,6 @@ func (director *RequestDirector) Start() {
 				return
 			}
 
-			sshChannel.CloseWrite()
 			wg.Done()
 		}()
 
@@ -434,6 +433,6 @@ func (director *RequestDirector) Start() {
 
 		wg.Wait()
 		request.Close()
-		sshChannel.Close()
+		sshChannel.CloseWrite()
 	}
 }
