@@ -17,25 +17,6 @@ type RequestDirector struct {
 	sshServer *SSHServer
 }
 
-func (director *RequestDirector) Handle404(request net.Conn) {
-	bodyBuf := bytes.NewBufferString("No tunnel found.")
-	response := http.Response{
-		StatusCode:    404,
-		ProtoMajor:    1,
-		ProtoMinor:    1,
-		Body:          ioutil.NopCloser(bodyBuf),
-		ContentLength: int64(bodyBuf.Len()),
-	}
-
-	if err := response.Write(request); err != nil {
-		log.Infof("Could not write 404 response: %s", err)
-	}
-
-	if err := request.Close(); err != nil {
-		log.Infof("Could not close client connection", err)
-	}
-}
-
 func (director *RequestDirector) Start() {
 	log.Info("Starting Request Director...")
 
@@ -132,5 +113,24 @@ func (director *RequestDirector) Start() {
 		if err = sshChannel.Close(); err != nil {
 			contextLogger.Warnf("Could not close SSH channel: %s", err)
 		}
+	}
+}
+
+func (director *RequestDirector) Handle404(request net.Conn) {
+	bodyBuf := bytes.NewBufferString("No tunnel found.")
+	response := http.Response{
+		StatusCode:    404,
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Body:          ioutil.NopCloser(bodyBuf),
+		ContentLength: int64(bodyBuf.Len()),
+	}
+
+	if err := response.Write(request); err != nil {
+		log.Infof("Could not write 404 response: %s", err)
+	}
+
+	if err := request.Close(); err != nil {
+		log.Infof("Could not close client connection", err)
 	}
 }
