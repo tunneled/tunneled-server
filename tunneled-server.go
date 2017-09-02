@@ -429,11 +429,11 @@ func (director *RequestDirector) Start() {
 
 			contextLogger.Info("Returned response")
 
-			sshChannel.Close()
 			wg.Done()
 		}()
 
 		wg.Wait()
 		request.Close()
+		sshChannel.Close()
 	}
 }
