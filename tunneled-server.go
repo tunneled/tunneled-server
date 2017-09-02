@@ -100,6 +100,7 @@ type SSHServer struct {
 	port    string
 	tunnels map[string]*Tunnel
 	users   map[string]*User
+	sync.RWMutex
 }
 
 type User struct {
@@ -267,11 +268,9 @@ func (server *SSHServer) handleRequests(reqs <-chan *ssh.Request, conn *ssh.Serv
 					remotePort: remotePort,
 				}
 
-				var mutex = &sync.Mutex{}
-
-				mutex.Lock()
+				sshServer.Lock()
 				sshServer.tunnels[domain] = &tun
-				mutex.Unlock()
+				sshServer.Unlock()
 
 				req.Reply(true, []byte{})
 			} else {
@@ -386,11 +385,9 @@ func (director *RequestDirector) Start() {
 			}
 		}
 
-		var mutex = &sync.Mutex{}
-
-		mutex.Lock()
+		sshServer.RLock()
 		tun := sshServer.tunnels[domain]
-		mutex.Unlock()
+		sshServer.RUnlock()
 
 		if tun == nil {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
