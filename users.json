@@ -6,9 +6,5 @@
 	"brooks": {
 		"subdomain": "brooks",
 		"publicKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDCVn/shbTiKA+cfiqtQukE7Tb883fB7mOia7GJzwNBXUe8mB0yMJTmE34L8ZhOv+8+RNMFUAY+YMjFqcRRwhh3NKI3CQQZEU/Ka6YXCwuBrdQipHjwRiZjhyS47rCtnQ+2y1V7CZeCPkIKUZQGa20GdNC8+U6f26WdZVLAQN+pJ6kyIvnNW4AgTLSJsJqgndYqwJ4aPpL/HTC4DM4WpM01/ep/iuvIQcC+vKAUjwomIcD+R3YScQVWQuRQuIoX22lafwkcupyNkYCEp8EK3XvWP5ezv8EeJOI+CfO4z+mKD+gRztKXt53N+eD9Aew3XfzlJCieWNNuzZ0hfxmPDqn7"
-	},
-	"brooks-work": {
-		"subdomain": "brooks",
-		"publicKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDTkw3xzi7IEsWdawDtBfhDeptiEZOhu/uDOyhYDYKEkA2V4HnpyOi9szzXrQ7zgjOK/ziATJDrSgaOAObIE0xgKaLw3gg5xiM7T2xRXlyOU0iFbmqnjJCXDMh+UiduURTnj/IywGkMlh1YcuQCH/rBffPITaa2PmRj8owBl6i5Y5UKuV1WoYuYpsnZgxq8ZukKy6zC2NXIBah1vCncjL7QM6tYafa0aJyLM1VsMeke0Nh/sr5dIILxbTgDwFG0mbzHESplGM1eO6yQg2GQ/wEvVXgJ+b1BJRnMlm0hr9loJ8gnoLgt2oQ+ytGXWg4wOR6cI4oheSOtNaw6PtF0mvo1 brooks@C02QW2JWFVH8"
 	}
 }
