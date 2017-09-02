@@ -389,6 +389,9 @@ func (director *RequestDirector) Start() {
 		tun := sshServer.tunnels[domain]
 		sshServer.RUnlock()
 
+		var wg sync.WaitGroup
+		wg.Add(2)
+
 		if tun == nil {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
@@ -406,8 +409,6 @@ func (director *RequestDirector) Start() {
 			continue
 		}
 
-		chDone := make(chan bool)
-
 		go func() {
 			_, err := io.Copy(sshChannel, &requestBuf)
 			if err != nil {
@@ -418,6 +419,7 @@ func (director *RequestDirector) Start() {
 			}
 
 			sshChannel.CloseWrite()
+			wg.Done()
 		}()
 
 		go func() {
@@ -432,10 +434,10 @@ func (director *RequestDirector) Start() {
 			contextLogger.Info("Returned response")
 
 			sshChannel.Close()
-			chDone <- true
+			wg.Done()
 		}()
 
-		<-chDone
+		wg.Wait()
 		request.Close()
 	}
 }
