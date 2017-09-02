@@ -401,7 +401,7 @@ func (director *RequestDirector) Start() {
 
 		sshChannel, err := sshServer.createChannel(*tun)
 		if err != nil {
-			contextLogger.Infof("Couldn't create a tunnel for: http://%s", domain)
+			contextLogger.Warnf("Couldn't create a tunnel for: http://%s", domain)
 
 			director.Handle404(request)
 			continue
