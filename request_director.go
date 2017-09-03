@@ -42,6 +42,11 @@ func (director *RequestDirector) Start() {
 			log.WithFields(log.Fields{
 				"remote_ip": request.RemoteAddr(),
 			}).Warnf("Couldn't parse request as HTTP: %s", err)
+
+			if err := request.Close(); err != nil {
+				log.Warnf("Could not close request", err)
+			}
+
 			continue
 		}
 
@@ -130,6 +135,6 @@ func (director *RequestDirector) Handle404(request net.Conn) {
 	}
 
 	if err := request.Close(); err != nil {
-		log.Warnf("Could not close client connection", err)
+		log.Warnf("Could not close request", err)
 	}
 }
