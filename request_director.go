@@ -117,10 +117,10 @@ func (director *RequestDirector) Handle404(request net.Conn) {
 	}
 
 	if err := response.Write(request); err != nil {
-		log.Infof("Could not write 404 response: %s", err)
+		log.Warnf("Could not write 404 response: %s", err)
 	}
 
 	if err := request.Close(); err != nil {
-		log.Infof("Could not close client connection", err)
+		log.Warnf("Could not close client connection", err)
 	}
 }
