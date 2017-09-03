@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
@@ -61,13 +62,9 @@ func (director *RequestDirector) Start() {
 			}
 		}
 
-		director.sshServer.RLock()
-		tun := director.sshServer.tunnels[domain]
-		director.sshServer.RUnlock()
-
-		if tun == nil {
-			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
-
+		tun, err := director.FindTunnel(domain)
+		if err != nil {
+			contextLogger.Info(err)
 			director.Handle404(request)
 			continue
 		}
@@ -104,6 +101,18 @@ func (director *RequestDirector) Start() {
 			}
 		}()
 	}
+}
+
+func (director *RequestDirector) FindTunnel(domain string) (*Tunnel, error) {
+	director.sshServer.RLock()
+	tun := director.sshServer.tunnels[domain]
+	director.sshServer.RUnlock()
+
+	if tun == nil {
+		return nil, fmt.Errorf("No tunnel found for %s", domain)
+	}
+
+	return tun, nil
 }
 
 func (director *RequestDirector) Handle404(request net.Conn) {
