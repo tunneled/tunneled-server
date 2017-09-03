@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"sync"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -22,7 +21,7 @@ func (director *RequestDirector) Start() {
 
 	listener, err := net.Listen("tcp", ":"+director.port)
 	if err != nil {
-		log.Fatalf("Could not start listener on port %s: %s", director.port, err)
+		log.Fatalf("Could not listen on port %s: %s", director.port, err)
 	}
 
 	log.Infof("Request director listening on port %s", director.port)
@@ -66,9 +65,6 @@ func (director *RequestDirector) Start() {
 		tun := director.sshServer.tunnels[domain]
 		director.sshServer.RUnlock()
 
-		var wg sync.WaitGroup
-		wg.Add(2)
-
 		if tun == nil {
 			contextLogger.Infof("Couldn't find a tunnel for: http://%s", domain)
 
@@ -91,11 +87,11 @@ func (director *RequestDirector) Start() {
 				return
 			}
 
-			wg.Done()
-		}()
+			if err = sshChannel.CloseWrite(); err != nil {
+				contextLogger.Warnf("Could not close SSH channel: %s", err)
+			}
 
-		go func() {
-			_, err := io.Copy(request, sshChannel)
+			_, err = io.Copy(request, sshChannel)
 			if err != nil {
 				contextLogger.Warnf("Couldn't copy response from tunnel: %s", err)
 				return
@@ -103,18 +99,10 @@ func (director *RequestDirector) Start() {
 
 			contextLogger.Info("Returned response")
 
-			wg.Done()
+			if err = request.Close(); err != nil {
+				contextLogger.Warnf("Could not close request: %s", err)
+			}
 		}()
-
-		wg.Wait()
-
-		if err = request.Close(); err != nil {
-			contextLogger.Warnf("Could not close request: %s", err)
-		}
-
-		if err = sshChannel.Close(); err != nil {
-			contextLogger.Warnf("Could not close SSH channel: %s", err)
-		}
 	}
 }
 
